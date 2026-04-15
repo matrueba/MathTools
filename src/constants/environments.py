@@ -1,3 +1,15 @@
+# ── Environment Definitions ─────────────────────────────────────────────────
+# Each environment maps to:
+#   target_dir  → the dot-folder that will be created in the user's project
+#   sources     → list of (src_path_in_zip, dest_subpath) tuples
+#                 src_path_in_zip is relative to the ZIP root
+#                 dest_subpath is relative to target_dir
+#
+# Shared content (skills) lives under .agents/skills and .gemini/skills in the
+# repo (they are identical).  We always pull from .agents/skills as canonical
+# source and place it where each environment expects it.
+
+
 ENVIRONMENTS = {
     "gemini": {
         "label": "Gemini CLI",
