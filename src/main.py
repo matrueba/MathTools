@@ -8,7 +8,7 @@ from cli.memory import MemoryManager
 from cli.general import print_banner, prompt_no_environments_found, show_main_menu
 from utils.common import detect_environments
 from utils.ui import console
-
+from rich.table import Table
 
 def main() -> None:
     installer = FrameworkInstaller()
@@ -25,12 +25,23 @@ def main() -> None:
             installer.run_installer()
             sys.exit(0)
 
-        env_list = "  ".join(
-            f"[bright_green]{label}[/]" for _, label in found
+        from rich import box
+        table = Table(
+            title="[bold bright_green]✦ Detected Environments[/]",
+            show_header=True,
+            header_style="bold bright_cyan",
+            border_style="bright_green",
+            padding=(0, 2),
+            box=box.ROUNDED,
         )
-        console.print(
-            f"[dim]Detected environments:[/] {env_list}\n"
-        )
+        table.add_column("Environment", style="bold white")
+        table.add_column("Scope", style="dim")
+
+        for _, label, scope_str in found:
+            table.add_row(label, scope_str)
+            
+        console.print(table)
+        console.print()
 
         action = show_main_menu()
 

@@ -1,5 +1,4 @@
 from constants.environments import ENVIRONMENTS
-from constants.directories import KNOWN_AI_DIRS
 import questionary
 from rich.panel import Panel
 from rich.text import Text
@@ -9,17 +8,27 @@ from constants.general import VERSION
 from utils.ui import console, QUESTIONARY_STYLE
 
 
+from rich.align import Align
+
 def print_banner() -> None:
     """Print the welcome banner."""
+    ascii_art = r"""
+    __  ___          __    __    ______                  __        
+   /  |/  / ____ _  / /_  / /_  /_  __/ ____   ____    / /  _____
+  / /|_/ / / __ `/ / __/ / __ \  / /   / __ \ / __ \  / /  / ___/
+ / /  / / / /_/ / / /_  / / / / / /   / /_/ // /_/ / / /  (__  ) 
+/_/  /_/  \__,_/  \__/ /_/ /_/ /_/    \____/ \____/ /_/  /____/  
+"""
+
     banner_text = Text()
-    banner_text.append("MathTools", style="bold bright_cyan")
-    banner_text.append(" AI Development Framework", style="bold white")
-    banner_text.append(f"\n\nv{VERSION}", style="dim")
+    banner_text.append(ascii_art, style="bold bright_cyan")
+    banner_text.append("\n  AI Development Framework ", style="bold white")
+    banner_text.append(f"v{VERSION}", style="bold bright_magenta")
 
     console.print(
         Panel(
-            banner_text,
-            title="[bold bright_magenta]✦ MathTools[/]",
+            Align.center(banner_text),
+            title="[bold bright_magenta]✦ Welcome[/]",
             border_style="bright_cyan",
             padding=(1, 4),
         )
@@ -32,11 +41,13 @@ def prompt_no_environments_found() -> bool:
     Called when no known AI framework folders are detected.
     Returns True if the user wants to proceed with installation, False to exit.
     """
+    env_lines = "\n".join(f"  [dim]{env['global_dir']}[/dim] or [dim]./{env['target_dir']}[/dim]  ({env['label']})" for env in ENVIRONMENTS.values())
+    
     console.print(
         Panel(
             "[bold yellow]⚠  No AI framework environments detected.[/]\n\n"
-            "None of the following folders exist in your home directory:\n"
-            + "\n".join(f"  [dim]{p}[/dim]  ({label})" for p, label in KNOWN_AI_DIRS)
+            "None of the following folders exist globally or locally:\n"
+            + env_lines
             + "\n\nWould you like to install one now?",
             title="[bold yellow]First-time setup[/]",
             border_style="yellow",
@@ -57,7 +68,7 @@ def show_main_menu() -> str:
             value="install",
         ),
         questionary.Choice(
-            title="🧠  Manage memory",
+            title="🧠  Manage Agents Memory",
             value="memory",
         ),
         questionary.Choice(

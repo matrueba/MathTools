@@ -15,6 +15,7 @@ ENVIRONMENTS = {
         "label": "Gemini CLI",
         "description": "Google Gemini CLI (.gemini) – supports agents, commands & skills",
         "target_dir": ".gemini",
+        "global_dir": "~/.gemini",
         "sources": [
             ("framework", "src/agents", "agents", "~/.gemini/agents"),
             ("framework", "src/commands", "commands", "~/.gemini/commands"),
@@ -22,9 +23,10 @@ ENVIRONMENTS = {
         ],
     },
     "agents": {
-        "label": "VSCode / AntiGravity / Cursor / Windsurf",
-        "description": "Standard IDE agents (.agents) – supports rules, skills & workflows",
+        "label": "Standard IDE agents",
+        "description": "IDE agents (VSCode / AntiGravity / Cursor) (.agents) – supports rules, skills & workflows",
         "target_dir": ".agents",
+        "global_dir": "~/.agents",
         "sources": [
             ("framework", "src/rules", "rules", "~/.agents/rules"),
             ("skills", "skills", "skills", "~/.agents/skills"),
@@ -35,6 +37,7 @@ ENVIRONMENTS = {
         "label": "Opencode",
         "description": "Opencode CLI (.opencode) – supports agents, commands & skills",
         "target_dir": ".opencode",
+        "global_dir": "~/.config/opencode",
         "sources": [
             # Opencode shares the same agent/command model as Gemini CLI
             ("framework", "src/agents", "agents", "~/.config/opencode/agents"),
@@ -46,6 +49,7 @@ ENVIRONMENTS = {
         "label": "Claude Code",
         "description": "Claude Code (.claude) – supports agents, commands & skills",
         "target_dir": ".claude",
+        "global_dir": "~/.claude",
         "sources": [
             ("framework", "src/agents", "agents", "~/.claude/agents"),
             ("framework", "src/commands", "commands", "~/.claude/commands"),
