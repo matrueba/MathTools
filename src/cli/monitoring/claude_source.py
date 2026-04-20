@@ -57,6 +57,7 @@ class ClaudeSource:
                     sessions.append({
                         "AI": "CL",
                         "Project": project_name,
+                        "ProjectPath": str(project_dir),
                         "SessionId": session_id,
                         "Summary": str(summary).replace("\n", " ").strip() if summary else "No summary",
                         "Model": info["model"].replace("claude-3-", ""),

@@ -46,6 +46,7 @@ class AntigravitySource:
                 sessions.append({
                     "AI": "AG",
                     "Project": "mathtools", # Default for this env
+                    "ProjectPath": "/root/mathtools",
                     "SessionId": session_id,
                     "Summary": summary,
                     "Model": "antigravity",

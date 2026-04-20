@@ -74,6 +74,7 @@ class OpenCodeSource:
                 sessions.append({
                     "AI": "OC",
                     "Project": os.path.basename(directory) if directory else "Unknown",
+                    "ProjectPath": directory if directory else "Unknown",
                     "SessionId": s_id,
                     "Summary": title,
                     "Model": info["model"],
