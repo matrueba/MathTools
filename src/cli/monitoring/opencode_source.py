@@ -82,6 +82,10 @@ class OpenCodeSource:
                     "LastContext": info["last_context_tokens"],
                     "ContextWindow": info["context_window"],
                     "TotalTokens": total_toks,
+                    "InputTokens": info["total_input"],
+                    "OutputTokens": info["total_output"],
+                    "CacheR": info["total_cache_read"],
+                    "CacheW": info["total_cache_create"],
                     "Quota": None,
                     "mtime": time_updated / 1000
                 })

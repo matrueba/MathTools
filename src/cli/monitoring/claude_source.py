@@ -65,6 +65,10 @@ class ClaudeSource:
                         "LastContext": info["last_context_tokens"],
                         "ContextWindow": info["context_window"],
                         "TotalTokens": total_toks,
+                        "InputTokens": info["total_input"],
+                        "OutputTokens": info["total_output"],
+                        "CacheR": info["total_cache_read"],
+                        "CacheW": info["total_cache_create"],
                         "Quota": None,
                         "mtime": entry.get("fileMtime", 0)
                     })
@@ -73,7 +77,7 @@ class ClaudeSource:
                 
         return sessions, totals
 
-    def parse_claude_jsonl(self, file_path: str) -> dict:
+    def _parse_claude_jsonl(self, file_path: str) -> dict:
         info = {
             "model": "-", "turn_count": 0, "total_input": 0, "total_output": 0,
             "total_cache_read": 0, "total_cache_create": 0, "last_context_tokens": 0,

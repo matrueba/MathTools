@@ -54,6 +54,10 @@ class AntigravitySource:
                     "LastContext": int(estimated_tokens * 0.6), 
                     "ContextWindow": 2000000, 
                     "TotalTokens": estimated_tokens,
+                    "InputTokens": int(estimated_tokens * 0.7),
+                    "OutputTokens": int(estimated_tokens * 0.15),
+                    "CacheR": int(estimated_tokens * 0.15),
+                    "CacheW": 0,
                     "Quota": None,
                     "mtime": mtime
                 })

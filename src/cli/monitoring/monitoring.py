@@ -32,22 +32,11 @@ class MonitoringManager:
 
     def run_monitoring(self) -> None:
         """Runs the interactive monitoring loop."""
-        def is_q_pressed():
-            old_settings = termios.tcgetattr(sys.stdin)
-            try:
-                tty.setcbreak(sys.stdin.fileno())
-                if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
-                    return sys.stdin.read(1).lower() == 'q'
-            finally:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-            return False
 
         console.clear()
         with Live(self._build_screen(), refresh_per_second=1, console=console, screen=False) as live:
             try:
                 while True:
-                    if is_q_pressed():
-                        break
                     live.update(self._build_screen())
                     time.sleep(1)
             except KeyboardInterrupt:
@@ -122,7 +111,11 @@ class MonitoringManager:
         table.add_column("Status")
         table.add_column("Model", style="dim")
         table.add_column("Context")
-        table.add_column("Tokens", justify="right")
+        table.add_column("In", justify="right")
+        table.add_column("Out", justify="right")
+        table.add_column("CR", justify="right")
+        table.add_column("CW", justify="right")
+        table.add_column("Total", justify="right")
         table.add_column("Turn", justify="right")
         
         for s in all_sessions:
@@ -135,8 +128,9 @@ class MonitoringManager:
             empty = "░" * (10 - len(blocks))
             color = "green" if ctx_pct < 60 else "yellow" if ctx_pct < 85 else "red"
             ctx_str = f"[{color}]{blocks}[/][dim]{empty}[/] {ctx_pct:.0f}%"
-
-            trunc_sum = s["Summary"][:40] + ("..." if len(s["Summary"]) > 40 else "")
+ 
+            summary_text = s["Summary"] if s["Summary"] else "No summary"
+            trunc_sum = summary_text[:35] + ("..." if len(summary_text) > 35 else "")
             
             table.add_row(
                 f"[bold red]*[/]{s['AI']}" if s['Status'] == 'Work' else f"[dim]{s['AI']}[/]",
@@ -146,7 +140,11 @@ class MonitoringManager:
                 f"[bright_green]● Work[/]" if s['Status'] == 'Work' else f"[yellow]○ Wait[/]",
                 s["Model"][:10],
                 ctx_str,
-                format_k(s["TotalTokens"]),
+                format_k(s.get("InputTokens", 0)),
+                format_k(s.get("OutputTokens", 0)),
+                format_k(s.get("CacheR", 0)),
+                format_k(s.get("CacheW", 0)),
+                format_k(s.get("TotalTokens", 0)),
                 str(s["TurnCount"])
             )
 

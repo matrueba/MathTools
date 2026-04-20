@@ -59,3 +59,27 @@ def test_monitoring_build_screen(mock_ag, mock_oc, mock_claude):
     screen = manager._build_screen()
     # If it returns a Group (rich object) without crashing, it passes
     assert screen is not None
+
+def test_session_token_breakdown():
+    # Test keys presence in sessions
+    with patch("cli.monitoring.claude_source.ClaudeSource._parse_claude_jsonl") as mock_parse:
+        mock_parse.return_value = {
+            "model": "claude-3-5-sonnet", "turn_count": 5, "total_input": 100, 
+            "total_output": 50, "total_cache_read": 10, "total_cache_create": 5, 
+            "last_context_tokens": 110, "context_window": 200000, "status": "Wait"
+        }
+        # Mock index file existence and content
+        with patch("cli.monitoring.claude_source.Path.exists", return_value=True), \
+             patch("builtins.open", MagicMock()):
+            # We need to mock json.load for the index
+            with patch("json.load", return_value={"entries": [{"sessionId": "test", "fileMtime": 123, "fullPath": "dummy"}]}), \
+                 patch("cli.monitoring.claude_source.Path.iterdir", return_value=[Path("project")]):
+                source = ClaudeSource()
+                sessions, _ = source.parse_claude_sessions()
+                if sessions:
+                    s = sessions[0]
+                    assert "InputTokens" in s
+                    assert "OutputTokens" in s
+                    assert "CacheR" in s
+                    assert "CacheW" in s
+                    assert s["InputTokens"] == 100
