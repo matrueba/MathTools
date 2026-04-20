@@ -7,7 +7,7 @@ from rich.tree import Tree
 
 from utils.ui import console, QUESTIONARY_STYLE
 
-CONFIG_PATH = Path("~/.mathtools.json").expanduser()
+CONFIG_PATH = Path("~/.config/mathtools/config.json").expanduser()
 
 class MemoryManager:
     def __init__(self):

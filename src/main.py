@@ -9,10 +9,12 @@ from cli.general import print_banner, prompt_no_environments_found, show_main_me
 from utils.common import detect_environments
 from utils.ui import console
 from rich.table import Table
+from cli.monitoring.monitoring import MonitoringManager
 
 def main() -> None:
     installer = FrameworkInstaller()
     memory_manager = MemoryManager()
+    monitoring_manager = MonitoringManager()
     try:
         print_banner()
 
@@ -49,9 +51,10 @@ def main() -> None:
             installer.run_installer()
         elif action == "memory":
             memory_manager.run_manage_memory()
+        elif action == "monitoring":
+            monitoring_manager.run_monitoring()
         else:
             console.print("[dim]Goodbye.[/]")
-
     except requests.RequestException as exc:
         console.print(
             f"\n[bold red]✗ Network error:[/] {exc}\n"
