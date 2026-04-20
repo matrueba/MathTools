@@ -34,7 +34,8 @@ class OpenCodeSource:
                 info = {
                     "model": "-", "turn_count": 0, "total_input": 0, "total_output": 0,
                     "total_cache_read": 0, "total_cache_create": 0, "last_context_tokens": 0,
-                    "context_window": 128000, "status": "Wait"
+                    "context_window": 128000, "status": "Wait",
+                    "children": [], "subagents": []
                 }
                 
                 # Opencode stores timestamps in ms
@@ -71,11 +72,15 @@ class OpenCodeSource:
 
                 total_toks = info["total_input"] + info["total_output"] + info["total_cache_read"] + info["total_cache_create"]
 
+                project_name = os.path.basename(directory) if directory else "Unknown"
+                # Try to find real PID by matching directory
+                pids = self._get_pid_for_directory(directory)
+                
                 sessions.append({
                     "AI": "OC",
-                    "Project": os.path.basename(directory) if directory else "Unknown",
-                    "SessionId": s_id,
-                    "Summary": title,
+                    "Project": project_name,
+                    "SessionId": s_id[:8],
+                    "Summary": title if title else "OpenCode Session",
                     "Model": info["model"],
                     "Status": info["status"],
                     "TurnCount": info["turn_count"],
@@ -86,22 +91,50 @@ class OpenCodeSource:
                     "OutputTokens": info["total_output"],
                     "CacheR": info["total_cache_read"],
                     "CacheW": info["total_cache_create"],
-                    "Quota": None,
-                    "mtime": time_updated / 1000
+                    "mtime": time_updated / 1000,
+                    "Subagents": info.get("subagents", []),
+                    "PIDs": pids,
+                    "ProjectPath": directory
                 })
 
             conn.close()
-        except:
+        except Exception:
             pass
             
         return sessions, totals
+
+    def _get_pid_for_directory(self, directory: str) -> str:
+        """
+        Finds the PID of an opencode process whose CWD matches the session directory.
+        """
+        import subprocess
+        try:
+            # Expand directory if it contains ~
+            target_dir = os.path.expanduser(directory)
+            
+            # Find all nodes or .opencode processes
+            cmd = ["pgrep", "-f", "opencode"]
+            pids = subprocess.check_output(cmd).decode().splitlines()
+            extracted_pids = []
+            for pid in pids:
+                try:
+                    cwd = os.readlink(f"/proc/{pid}/cwd")
+                    if cwd == target_dir:
+                        extracted_pids.append(pid)
+                        
+                except (OSError, PermissionError):
+                    continue
+        except Exception:
+            pass
+        return extracted_pids
 
     def parse_opencode_jsonl(self, file_path: Path) -> dict:
         info = {
             "session_id": file_path.stem, "project": "Unknown", "summary": "Opencode session",
             "model": "-", "turn_count": 0, "total_input": 0, "total_output": 0,
             "total_cache_read": 0, "total_cache_create": 0, "last_context_tokens": 0,
-            "context_window": 128000, "status": "Wait", "quota": None
+            "context_window": 128000, "status": "Wait", "quota": None,
+            "children": [], "subagents": []
         }
         try:
             mtime = os.path.getmtime(file_path)

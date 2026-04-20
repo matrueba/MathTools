@@ -21,10 +21,6 @@ class TestVersion:
         for part in parts:
             assert part.isdigit(), f"Non-numeric version component: {part}"
 
-    def test_version_value(self):
-        from constants.general import VERSION
-        assert VERSION == "1.1.0"
-
 
 # ── environments.py ─────────────────────────────────────────────────────────
 

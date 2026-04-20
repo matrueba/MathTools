@@ -16,6 +16,7 @@ from rich.columns import Columns
 from rich.live import Live
 
 from utils.ui import console
+from .extended import render_extended_session
 from constants.source_files import CLAUDE_BASE_DIR, OPENCODE_BASE_DIR, OPENCODE_DB_PATH
 
 from .claude_source import ClaudeSource
@@ -61,7 +62,7 @@ class MonitoringManager:
                         needs_update = True
 
                     now = time.time()
-                    if now - self.last_update_time > 1:
+                    if now - self.last_update_time > 3:
                         self._fetch_data()
                         needs_update = True
 
@@ -176,10 +177,10 @@ class MonitoringManager:
 
             term_h = ts.lines
             body_h = max(5, (term_h - 3) // 3)
-            window_size = max(1, body_h - 4)
-            start_idx    = max(0, min(self.selected_index - window_size // 2, len(self.all_sessions) - window_size))
-            end_idx      = min(len(self.all_sessions), start_idx + window_size)
-            visible      = self.all_sessions[start_idx:end_idx]
+            window_size = min(10, max(1, body_h - 4))
+            start_idx   = max(0, min(self.selected_index - window_size // 2, len(self.all_sessions) - window_size))
+            end_idx     = min(len(self.all_sessions), start_idx + window_size)
+            visible     = self.all_sessions[start_idx:end_idx]
         
             for i, s in enumerate(visible):
                 abs_idx = i + start_idx
@@ -225,15 +226,22 @@ class MonitoringManager:
         ], expand=True)
 
         footer = Panel(
-            "[bold cyan][q][/] Back to Menu   [bold yellow][q][/] Quit",
+            "[bold cyan][q][/] Back to Menu [q] [bold yellow][q][/] Quit",
             box=box.MINIMAL,
             padding=(0, 1)
         )
+
+        # 5. Extended Session View (only when a session is selected)
+        extended_view = render_extended_session(None)
+        if active_session:
+            extended_view = render_extended_session(active_session)
+            
 
         return Group(
             Panel(header, box=box.ROUNDED),
             top_row,
             Panel(table, title="Sessions", box=box.ROUNDED),
+            Panel(extended_view, title="Session Details", box=box.ROUNDED),
             footer
         )
 
