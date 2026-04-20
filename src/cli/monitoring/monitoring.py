@@ -28,6 +28,9 @@ class MonitoringManager:
         self.claude_source = ClaudeSource()
         self.opencode_source = OpenCodeSource()
         self.antigravity_source = AntigravitySource()
+        self.cached_totals = {"input": 0, "output": 0, "cacheR": 0, "cacheW": 0}
+        self.all_sessions = []
+        self.last_update_time = 0
 
 
     def run_monitoring(self) -> None:
@@ -42,26 +45,33 @@ class MonitoringManager:
             except KeyboardInterrupt:
                 pass
 
+    def _fetch_data(self):
+        """Fetches fresh data from all sources and updates cache."""
+        try:
+            claude_sessions, claude_totals = self.claude_source.parse_claude_sessions()
+            opencode_sessions, opencode_totals = self.opencode_source.parse_opencode_sessions()
+            antigravity_sessions, antigravity_totals = self.antigravity_source.parse_antigravity_sessions()
+
+            self.all_sessions = sorted(
+                claude_sessions + opencode_sessions + antigravity_sessions,
+                key=lambda x: x["mtime"], reverse=True,
+            )
+            self.cached_totals = {
+                "input":  claude_totals["input"]  + opencode_totals["input"]  + antigravity_totals["input"],
+                "output": claude_totals["output"] + opencode_totals["output"] + antigravity_totals["output"],
+                "cacheR": claude_totals["cacheR"] + opencode_totals["cacheR"] + antigravity_totals["cacheR"],
+                "cacheW": claude_totals["cacheW"] + opencode_totals["cacheW"] + antigravity_totals["cacheW"],
+            }
+            self.last_update_time = time.time()
+        except Exception:
+            pass
+
     def _build_screen(self) -> Group:
         """Assembles the full dashboard layout."""
-        claude_sessions, claude_totals = self.claude_source.parse_claude_sessions()
-        opencode_sessions, opencode_totals = self.opencode_source.parse_opencode_sessions()
-        antigravity_sessions, antigravity_totals = self.antigravity_source.parse_antigravity_sessions()
-        
-        all_sessions = sorted(
-            claude_sessions + opencode_sessions + antigravity_sessions, 
-            key=lambda x: x["mtime"], reverse=True
-        )
-        
-        global_totals = {
-            "input": claude_totals["input"] + opencode_totals["input"] + antigravity_totals["input"],
-            "output": claude_totals["output"] + opencode_totals["output"] + antigravity_totals["output"],
-            "cacheR": claude_totals["cacheR"] + opencode_totals["cacheR"] + antigravity_totals["cacheR"],
-            "cacheW": claude_totals["cacheW"] + opencode_totals["cacheW"] + antigravity_totals["cacheW"],
-        }
-        
-        total_tokens = sum(global_totals.values())
-        
+
+        self._fetch_data()
+        total_tokens = sum(self.cached_totals.values())
+
         def format_k(v: int) -> str:
             if v >= 1_000_000:
                 return f"{v/1_000_000:.1f}M"
@@ -72,7 +82,7 @@ class MonitoringManager:
         # 1. Quota Panel
         quota_text = "[dim]No rate limit data found[/]"
         rate_limits = None
-        for s in all_sessions:
+        for s in self.all_sessions:
             if s.get("Quota"):
                 rate_limits = s["Quota"]
                 break
@@ -91,12 +101,12 @@ class MonitoringManager:
             TextColumn("{task.completed}"),
             expand=True
         )
-        max_v = max(global_totals.values()) if any(global_totals.values()) else 1
+        max_v = max(self.cached_totals.values()) if any(self.cached_totals.values()) else 1
         
-        progress.add_task("[yellow]Input", total=max_v, completed=global_totals["input"])
-        progress.add_task("[magenta]Output", total=max_v, completed=global_totals["output"])
-        progress.add_task("[cyan]CacheR", total=max_v, completed=global_totals["cacheR"])
-        progress.add_task("[blue]CacheW", total=max_v, completed=global_totals["cacheW"])
+        progress.add_task("[yellow]Input", total=max_v, completed=self.cached_totals["input"])
+        progress.add_task("[magenta]Output", total=max_v, completed=self.cached_totals["output"])
+        progress.add_task("[cyan]CacheR", total=max_v, completed=self.cached_totals["cacheR"])
+        progress.add_task("[blue]CacheW", total=max_v, completed=self.cached_totals["cacheW"])
         
         # 3. Sessions Table
         table = Table(
@@ -118,7 +128,7 @@ class MonitoringManager:
         table.add_column("Total", justify="right")
         table.add_column("Turn", justify="right")
         
-        for s in all_sessions:
+        for s in self.all_sessions:
             ctx_pct = 0
             if s["ContextWindow"] > 0:
                 ctx_pct = (s["LastContext"] / s["ContextWindow"]) * 100
