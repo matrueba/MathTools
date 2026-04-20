@@ -15,7 +15,7 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-INSTALL_DIR="$HOME/.mathtools"
+INSTALL_DIR="$HOME/.local/share/mathtools"
 BIN_DIR="$HOME/.local/bin"
 REPO_URL="https://github.com/matrueba/mathtools.git"
 
