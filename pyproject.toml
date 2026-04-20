@@ -1,6 +1,6 @@
 [project]
 name = "matrueba-sdd-installer"
-version = "1.1.0"
+version = "1.2.0"
 description = "CLI installer for MathTools AI Development Framework"
 requires-python = ">=3.10"
 dependencies = [

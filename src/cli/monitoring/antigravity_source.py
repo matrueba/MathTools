@@ -59,7 +59,8 @@ class AntigravitySource:
                     "CacheR": int(estimated_tokens * 0.15),
                     "CacheW": 0,
                     "Quota": None,
-                    "mtime": mtime
+                    "mtime": mtime,
+                    "PIDs": []
                 })
         except Exception:
             pass
@@ -70,7 +71,7 @@ class AntigravitySource:
         session_brain = self.brain_dir / session_id
         if not session_brain.exists():
             return "Antigravity Session"
-            
+
         # Try walkthrough, then task, then plan
         for filename in ["walkthrough.md", "task.md", "implementation_plan.md"]:
             file_path = session_brain / filename

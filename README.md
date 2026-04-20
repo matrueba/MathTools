@@ -36,7 +36,11 @@ A real-time, interactive dashboard inspired by `htop` to keep track of your AI w
 
 - **Unified Tracking**: Monitor Claude, Opencode, and Antigravity sessions in a single, aggregated view.
 - **Resource Metrics**: Track real-time token usage (Input, Output, Cache), context window saturation, and provider rate limits.
-- **Interactive TUI**: Live refreshes every second with optimized parsing and non-blocking keyboard controls (`[q]` to exit).
+- **Extended Session Details**: Select any active session to see deep-dive metrics:
+    - **Live Process Tracking**: See active PIDs, CPU usage, and memory consumption for child processes.
+    - **Subagent Status**: Track the progress of parallel subtasks and internal agent workflows.
+    - **Context Bar**: Visualize exactly how much of your token window is remaining.
+- **Interactive TUI**: Live refreshes every second with optimized parsing and non-blocking keyboard controls (`[q]` to exit, `↑/↓` to navigate).
 
 ## 📦 Installation
 

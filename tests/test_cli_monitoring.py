@@ -10,6 +10,8 @@ from cli.monitoring.claude_source import ClaudeSource
 from cli.monitoring.opencode_source import OpenCodeSource
 from cli.monitoring.antigravity_source import AntigravitySource
 from cli.monitoring.monitoring import MonitoringManager
+from cli.monitoring.extended import render_extended_session
+from rich.console import Group
 
 def test_claude_source_initialization():
     source = ClaudeSource()
@@ -50,7 +52,9 @@ def test_monitoring_manager_initialization():
 @patch("cli.monitoring.monitoring.ClaudeSource.parse_claude_sessions")
 @patch("cli.monitoring.monitoring.OpenCodeSource.parse_opencode_sessions")
 @patch("cli.monitoring.monitoring.AntigravitySource.parse_antigravity_sessions")
-def test_monitoring_build_screen(mock_ag, mock_oc, mock_claude):
+@patch("os.get_terminal_size")
+def test_monitoring_build_screen(mock_size, mock_ag, mock_oc, mock_claude):
+    mock_size.return_value = MagicMock(lines=24, columns=80)
     mock_claude.return_value = ([], {"input": 10, "output": 20, "cacheR": 0, "cacheW": 0})
     mock_oc.return_value = ([], {"input": 30, "output": 40, "cacheR": 0, "cacheW": 0})
     mock_ag.return_value = ([], {"input": 50, "output": 60, "cacheR": 0, "cacheW": 0})
@@ -83,3 +87,43 @@ def test_session_token_breakdown():
                     assert "CacheR" in s
                     assert "CacheW" in s
                     assert s["InputTokens"] == 100
+
+def test_render_extended_session_logic():
+    """Test the extended session rendering with various data states."""
+    # 1. No session
+    assert isinstance(render_extended_session(None), Group)
+    
+    # 2. Complete session
+    session = {
+        "SessionId": "123456789012345",
+        "ProjectPath": "/root/mathtools",
+        "AI": "Antigravity",
+        "Status": "Work",
+        "Summary": "Testing extended view",
+        "PIDs": [9999],
+        "Subagents": [{"status": "work", "label": "Subtask 1"}],
+        "InputTokens": 1500,
+        "OutputTokens": 800,
+        "CacheR": 200,
+        "CacheW": 100,
+        "ContextWindow": 128000,
+        "LastContext": 64000,
+        "Model": "gemini-1.5-pro",
+        "mtime": 1713650000,
+        "TurnCount": 12
+    }
+    
+    with patch("subprocess.check_output") as mock_ps:
+        mock_ps.return_value = b"python 2.5 102400"
+        result = render_extended_session(session)
+        assert isinstance(result, Group)
+
+def test_render_extended_session_minimal_data():
+    """Test rendering with minimal required session keys."""
+    session = {
+        "SessionId": "short",
+        "PIDs": [],
+        "Subagents": []
+    }
+    result = render_extended_session(session)
+    assert isinstance(result, Group)
