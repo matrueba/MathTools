@@ -40,13 +40,13 @@ A real-time, interactive dashboard inspired by `htop` to keep track of your AI w
 
 ## 📦 Installation
 
-To install **MathTools** globally on your Linux system:
+To install **MathTools** globally on your Linux/Mac system:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/matrueba/mathtools/main/install.sh | bash
 ```
 
-_This will set up the python environment and create a `matrueba-sdd` symlink in your path._
+_This will set up the python environment and create a `mathtools` symlink in your path._
 
 ## 💻 Usage
 

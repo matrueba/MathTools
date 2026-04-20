@@ -21,10 +21,15 @@ REPO_URL="https://github.com/matrueba/mathtools.git"
 
 echo "📦 Setting up repository in $INSTALL_DIR..."
 # 1. Clone or update repository
-if [ -d "$INSTALL_DIR" ]; then
+if [ -d "$INSTALL_DIR/.git" ]; then
     echo "   Updating existing installation..."
     cd "$INSTALL_DIR"
     git pull origin main --quiet
+elif [ -d "$INSTALL_DIR" ]; then
+    echo "   Existing directory $INSTALL_DIR is not a git repository. Re-cloning..."
+    rm -rf "$INSTALL_DIR"
+    git clone --quiet "$REPO_URL" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
 else
     echo "   Cloning from GitHub..."
     git clone --quiet "$REPO_URL" "$INSTALL_DIR"
