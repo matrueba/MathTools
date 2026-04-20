@@ -113,8 +113,8 @@ class TestShowMainMenu:
                 result = show_main_menu()
                 assert result == "exit"
 
-    def test_provides_three_choices(self):
-        """Menu should offer exactly 3 choices."""
+    def test_provides_four_choices(self):
+        """Menu should offer exactly 4 choices."""
         with patch("cli.general.console"):
             with patch("cli.general.questionary.select") as mock_select:
                 mock_select.return_value.ask.return_value = "exit"
@@ -123,4 +123,4 @@ class TestShowMainMenu:
 
                 call_kwargs = mock_select.call_args
                 choices = call_kwargs[1].get("choices", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else [])
-                assert len(choices) == 3
+                assert len(choices) == 4

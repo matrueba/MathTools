@@ -1,0 +1,4 @@
+CLAUDE_BASE_DIR = "~/.claude/projects"
+OPENCODE_BASE_DIR = "~/.config/opencode"
+OPENCODE_DB_PATH = "~/.local/share/opencode/opencode.db"
+ANTIGRAVITY_BASE_DIR = "~/.gemini/antigravity"

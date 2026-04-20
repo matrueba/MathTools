@@ -72,6 +72,10 @@ def show_main_menu() -> str:
             value="memory",
         ),
         questionary.Choice(
+            title="📊  Monitoring Agents",
+            value="monitoring",
+        ),
+        questionary.Choice(
             title="✕  Exit",
             value="exit",
         ),
