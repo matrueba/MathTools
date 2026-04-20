@@ -18,18 +18,18 @@ class TestMemoryManagerConfig:
         config_file = tmp_path / ".mathtools.json"
         config_file.write_text(json.dumps(config_data))
 
-        with patch("cli.memory.CONFIG_PATH", config_file):
+        with patch("cli.memory.CONFIG_PATH_OBJ", config_file):
             from cli.memory import MemoryManager
-            mm = MemoryManager()
+            mm = MemoryManager(config_path=config_file)
             assert mm.config == config_data
 
     def test_load_config_file_not_exists(self, tmp_path):
         """Should return empty dict when config does not exist."""
         config_file = tmp_path / ".mathtools_nonexistent.json"
 
-        with patch("cli.memory.CONFIG_PATH", config_file):
+        with patch("cli.memory.CONFIG_PATH_OBJ", config_file):
             from cli.memory import MemoryManager
-            mm = MemoryManager()
+            mm = MemoryManager(config_path=config_file)
             assert mm.config == {}
 
     def test_load_config_invalid_json(self, tmp_path):
@@ -37,18 +37,18 @@ class TestMemoryManagerConfig:
         config_file = tmp_path / ".mathtools.json"
         config_file.write_text("NOT VALID JSON {{{")
 
-        with patch("cli.memory.CONFIG_PATH", config_file):
+        with patch("cli.memory.CONFIG_PATH_OBJ", config_file):
             from cli.memory import MemoryManager
-            mm = MemoryManager()
+            mm = MemoryManager(config_path=config_file)
             assert mm.config == {}
 
     def test_save_config(self, tmp_path):
         """Should write config dict to JSON file."""
         config_file = tmp_path / ".mathtools.json"
 
-        with patch("cli.memory.CONFIG_PATH", config_file):
+        with patch("cli.memory.CONFIG_PATH_OBJ", config_file):
             from cli.memory import MemoryManager
-            mm = MemoryManager()
+            mm = MemoryManager(config_path=config_file)
             mm.config = {"key": "value"}
             mm._save_config()
 
@@ -59,10 +59,11 @@ class TestMemoryManagerConfig:
         """Should handle write errors gracefully."""
         config_file = tmp_path / "nonexistent_dir" / "config.json"
 
-        with patch("cli.memory.CONFIG_PATH", config_file):
+        # Mock mkdir to raise an error
+        with patch.object(Path, "mkdir", side_effect=OSError("Read-only file system")):
             with patch("cli.memory.console") as mock_console:
                 from cli.memory import MemoryManager
-                mm = MemoryManager()
+                mm = MemoryManager(config_path=config_file)
                 mm.config = {"key": "value"}
                 # Should not raise, just print error
                 mm._save_config()
@@ -76,10 +77,10 @@ class TestMemoryManagerRunManageMemory:
         config_data = {"obsidian_vault_path": str(sample_vault)}
         config_file.write_text(json.dumps(config_data))
 
-        with patch("cli.memory.CONFIG_PATH", config_file):
+        with patch("cli.memory.CONFIG_PATH_OBJ", config_file):
             with patch("cli.memory.console") as mock_console:
                 from cli.memory import MemoryManager
-                mm = MemoryManager()
+                mm = MemoryManager(config_path=config_file)
                 mm.run_manage_memory()
 
         # Should have printed the tree (at least the vault path header)
@@ -92,12 +93,12 @@ class TestMemoryManagerRunManageMemory:
         config_file = tmp_path / ".mathtools.json"
         config_file.write_text("{}")
 
-        with patch("cli.memory.CONFIG_PATH", config_file):
+        with patch("cli.memory.CONFIG_PATH_OBJ", config_file):
             with patch("cli.memory.console"):
                 with patch("cli.memory.questionary.path") as mock_path:
                     mock_path.return_value.ask.return_value = str(sample_vault)
                     from cli.memory import MemoryManager
-                    mm = MemoryManager()
+                    mm = MemoryManager(config_path=config_file)
                     mm.run_manage_memory()
 
                     mock_path.assert_called_once()
@@ -107,12 +108,12 @@ class TestMemoryManagerRunManageMemory:
         config_file = tmp_path / ".mathtools.json"
         config_file.write_text("{}")
 
-        with patch("cli.memory.CONFIG_PATH", config_file):
+        with patch("cli.memory.CONFIG_PATH_OBJ", config_file):
             with patch("cli.memory.console"):
                 with patch("cli.memory.questionary.path") as mock_path:
                     mock_path.return_value.ask.return_value = None
                     from cli.memory import MemoryManager
-                    mm = MemoryManager()
+                    mm = MemoryManager(config_path=config_file)
                     mm.run_manage_memory()  # Should not raise
 
     def test_vault_path_not_exists(self, tmp_path):
@@ -121,14 +122,13 @@ class TestMemoryManagerRunManageMemory:
         config_data = {"obsidian_vault_path": "/nonexistent/vault/path"}
         config_file.write_text(json.dumps(config_data))
 
-        with patch("cli.memory.CONFIG_PATH", config_file):
+        with patch("cli.memory.CONFIG_PATH_OBJ", config_file):
             with patch("cli.memory.console") as mock_console:
                 from cli.memory import MemoryManager
+                mm = MemoryManager(config_path=config_file)
 
                 # Simulate: path in config doesn't exist, user enters a new bad path
                 # that also doesn't exist → first branch is prompting
-                mm = MemoryManager()
-
                 with patch("cli.memory.questionary.path") as mock_path:
                     mock_path.return_value.ask.return_value = str(tmp_path / "also_nonexistent")
                     mm.run_manage_memory()

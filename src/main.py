@@ -1,5 +1,6 @@
 import requests
 import sys
+import os
 
 from constants.general import VERSION
 
@@ -17,6 +18,9 @@ def main() -> None:
     monitoring_manager = MonitoringManager()
     try:
         print_banner()
+        
+        cwd = os.getcwd()
+        console.print(f"[dim]📂 Active context:[/] [bold cyan]{cwd}[/]\n")
 
         found = detect_environments()
         if not found:

@@ -6,17 +6,19 @@ import questionary
 from rich.tree import Tree
 
 from utils.ui import console, QUESTIONARY_STYLE
+from constants.general import CONFIG_PATH
 
-CONFIG_PATH = Path("~/.config/mathtools/config.json").expanduser()
+CONFIG_PATH_OBJ = Path(CONFIG_PATH).expanduser()
 
 class MemoryManager:
-    def __init__(self):
+    def __init__(self, config_path: Path = None):
+        self.config_path = config_path or CONFIG_PATH_OBJ
         self.config = self._load_config()
 
     def _load_config(self) -> dict:
-        if CONFIG_PATH.exists():
+        if self.config_path.exists():
             try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                with open(self.config_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
                 return {}
@@ -24,10 +26,11 @@ class MemoryManager:
 
     def _save_config(self) -> None:
         try:
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4)
         except Exception as e:
-            console.print(f"[dim red]Could not save config: {e}[/]")
+            console.print(f"[dim red]Could not save config to {self.config_path}: {e}[/]")
 
     def run_manage_memory(self) -> None:
         console.print("\n[bold bright_magenta]\U0001f9e0  Manage Memory[/]")

@@ -13,7 +13,7 @@ dependencies = [
 Homepage = "https://github.com/matrueba/mathtools"
 
 [project.scripts]
-matrueba-sdd = "main:main"
+mathtools = "main:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]
