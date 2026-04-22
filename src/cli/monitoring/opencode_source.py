@@ -31,10 +31,11 @@ class OpenCodeSource:
                 cursor.execute("SELECT data FROM message WHERE session_id = ?", (s_id,))
                 msg_rows = cursor.fetchall()
                 
+                # Context window dependent on model: we use by default 200k for Minimax
                 info = {
                     "model": "-", "turn_count": 0, "total_input": 0, "total_output": 0,
                     "total_cache_read": 0, "total_cache_create": 0, "last_context_tokens": 0,
-                    "context_window": 128000, "status": "Wait",
+                    "context_window": 200000, "status": "Wait",
                     "children": [], "subagents": []
                 }
                 
