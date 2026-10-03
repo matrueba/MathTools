@@ -1,13 +1,16 @@
 import os
+import json
 import time
+import urllib.request
 from pathlib import Path
-from constants.source_files import ANTIGRAVITY_BASE_DIR
+from constants.source_files import ANTIGRAVITY_BASE_DIR, MODEL_CONTEXT_WINDOW
 
 class AntigravitySource:
     def __init__(self):
         self.base_dir = Path(ANTIGRAVITY_BASE_DIR).expanduser()
         self.brain_dir = self.base_dir / "brain"
         self.conv_dir = self.base_dir / "conversations"
+
 
     def parse_antigravity_sessions(self) -> tuple:
         sessions = []
@@ -42,17 +45,21 @@ class AntigravitySource:
                 status = "Wait"
                 if time.time() - mtime < 60:
                     status = "Work"
-                
+
+                # Detect model (heuristic for Antigravity)
+                model_name = os.environ.get("ANTIGRAVITY_MODEL", "gemini-3.1-pro")
+                context_window = MODEL_CONTEXT_WINDOW.get(model_name, 1000000)
+
                 sessions.append({
                     "AI": "AG",
                     "Project": "mathtools", # Default for this env
                     "SessionId": session_id,
                     "Summary": summary,
-                    "Model": "antigravity",
+                    "Model": model_name.replace("gemini-3-", ""),
                     "Status": status,
                     "TurnCount": "-", 
                     "LastContext": int(estimated_tokens * 0.6), 
-                    "ContextWindow": 2000000, 
+                    "ContextWindow": context_window,
                     "TotalTokens": estimated_tokens,
                     "InputTokens": int(estimated_tokens * 0.7),
                     "OutputTokens": int(estimated_tokens * 0.15),

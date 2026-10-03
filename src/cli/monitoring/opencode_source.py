@@ -3,7 +3,7 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from constants.source_files import OPENCODE_BASE_DIR, OPENCODE_DB_PATH
+from constants.source_files import OPENCODE_BASE_DIR, OPENCODE_DB_PATH, MODEL_CONTEXT_WINDOW
 
 class OpenCodeSource:
     def __init__(self):
@@ -50,6 +50,7 @@ class OpenCodeSource:
                             info["turn_count"] += 1
                             if "modelID" in data:
                                 info["model"] = data["modelID"]
+                                info["context_window"] = MODEL_CONTEXT_WINDOW.get(info["model"], 200000)
                             
                             toks = data.get("tokens", {})
                             inp = toks.get("input", 0)
@@ -219,6 +220,8 @@ class OpenCodeSource:
                                 info["model"] = payload["model"]
                             if "model_context_window" in payload:
                                 info["context_window"] = payload["model_context_window"]
+                            else:
+                                info["context_window"] = MODEL_CONTEXT_WINDOW.get(info["model"], 200000)
                                 
                     except Exception:
                         continue

@@ -60,7 +60,10 @@ def prompt_no_environments_found() -> bool:
 def show_main_menu() -> str:
     """
     Display the main menu and return the chosen action key.
-    Returns one of: 'install', 'memory', 'exit'
+    Returns one of: 'install', 'memory', 'monitoring', 'exit'
+
+    The web dashboard is not listed here: it is selected by running
+    `mathtools` without `--cli`.
     """
     choices = [
         questionary.Choice(

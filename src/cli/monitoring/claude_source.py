@@ -2,7 +2,7 @@ import os
 import json
 import time
 from pathlib import Path
-from constants.source_files import CLAUDE_BASE_DIR
+from constants.source_files import CLAUDE_BASE_DIR, MODEL_CONTEXT_WINDOW
 
 class ClaudeSource:
     def __init__(self):
@@ -133,6 +133,7 @@ class ClaudeSource:
                             msg = record["message"]
                             if "model" in msg:
                                 info["model"] = msg["model"]
+                                info["context_window"] = MODEL_CONTEXT_WINDOW.get(info["model"].replace("claude-3-", "claude-"), 200000)
                             usage = msg.get("usage", {})
                             
                             inp = usage.get("input_tokens", 0)

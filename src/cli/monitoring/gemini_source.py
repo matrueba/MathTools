@@ -2,7 +2,7 @@ import os
 import json
 import time
 from pathlib import Path
-from constants.source_files import GEMINI_BASE_DIR
+from constants.source_files import GEMINI_BASE_DIR, MODEL_CONTEXT_WINDOW
 
 class GeminiSource:
     def __init__(self):
@@ -114,6 +114,7 @@ class GeminiSource:
                 # Model
                 if "model" in msg:
                     info["model"] = msg["model"]
+                    info["context_window"] = MODEL_CONTEXT_WINDOW.get(info["model"], 200000)
                 
                 # Thoughts -> Summary (Prefer the latest subject)
                 thoughts = msg.get("thoughts", [])
