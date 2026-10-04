@@ -12,7 +12,11 @@ only wires those routers together; it holds no route logic of its own.
 """
 
 from constants.general import VERSION
-from constants.web import DEV_ORIGINS, WEB_HOST, WEB_PORT
+from constants.web import DEV_ORIGINS, WEB_HOST, WEB_PORT, FRONTEND_DIST_DIR
+from utils.ui import console
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from .data import DataStore
 from .paths import repo_root
@@ -25,17 +29,14 @@ _repo_root = repo_root
 
 def create_app():
     """Build the FastAPI application by wiring up each resource's router."""
-    from fastapi import FastAPI
-    from fastapi.middleware.cors import CORSMiddleware
 
     app = FastAPI(
-        title="MathTools Agent Control",
+        title="MathTools Agent Management",
         version=VERSION,
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
     )
 
-    # The Vite dev server runs on its own origin during development.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=DEV_ORIGINS,
@@ -71,18 +72,7 @@ class WebDashboard:
         self.port = port
 
     def run_web_dashboard(self) -> None:
-        from utils.ui import console
 
-        try:
-            import uvicorn
-        except ImportError:
-            console.print(
-                "\n[bold red]✗ Web dependencies are not installed.[/]\n"
-                "  Install them with: [bold]pip install 'matrueba-sdd-installer[web]'[/]"
-            )
-            return
-
-        from constants.web import FRONTEND_DIST_DIR
 
         dist_dir = repo_root() / FRONTEND_DIST_DIR
         url = f"http://{self.host}:{self.port}"
