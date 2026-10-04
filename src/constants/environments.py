@@ -23,8 +23,8 @@ ENVIRONMENTS = {
         ],
     },
     "agents": {
-        "label": "Standard IDE agents",
-        "description": "IDE agents (VSCode / AntiGravity / Cursor) (.agents) – supports rules, skills & workflows",
+        "label": "Antigravity",
+        "description": "Antigravity IDE (.agents) – supports rules, skills & workflows",
         "target_dir": ".agents",
         "global_dir": "~/.agents",
         "sources": [

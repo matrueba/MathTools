@@ -114,7 +114,12 @@ class TestShowMainMenu:
                 assert result == "exit"
 
     def test_provides_four_choices(self):
-        """Menu should offer exactly 4 choices."""
+        """
+        Menu should offer install, memory, monitoring and exit.
+
+        The web dashboard is deliberately absent: it is selected with the
+        `--cli` flag on the command line, not from inside the menu.
+        """
         with patch("cli.general.console"):
             with patch("cli.general.questionary.select") as mock_select:
                 mock_select.return_value.ask.return_value = "exit"
@@ -124,3 +129,6 @@ class TestShowMainMenu:
                 call_kwargs = mock_select.call_args
                 choices = call_kwargs[1].get("choices", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else [])
                 assert len(choices) == 4
+                assert [c.value for c in choices] == [
+                    "install", "memory", "monitoring", "exit",
+                ]

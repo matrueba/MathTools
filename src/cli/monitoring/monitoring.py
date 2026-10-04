@@ -22,12 +22,14 @@ from constants.source_files import CLAUDE_BASE_DIR, OPENCODE_BASE_DIR, OPENCODE_
 from .claude_source import ClaudeSource
 from .opencode_source import OpenCodeSource
 from .antigravity_source import AntigravitySource
+from .gemini_source import GeminiSource
 
 class MonitoringManager:
     def __init__(self):
         self.claude_source = ClaudeSource()
         self.opencode_source = OpenCodeSource()
         self.antigravity_source = AntigravitySource()
+        self.gemini_source = GeminiSource()
         self.cached_totals = {"input": 0, "output": 0, "cacheR": 0, "cacheW": 0}
         self.all_sessions = []
         self.last_update_time = 0
@@ -96,16 +98,17 @@ class MonitoringManager:
             claude_sessions, claude_totals = self.claude_source.parse_claude_sessions()
             opencode_sessions, opencode_totals = self.opencode_source.parse_opencode_sessions()
             antigravity_sessions, antigravity_totals = self.antigravity_source.parse_antigravity_sessions()
+            gemini_sessions, gemini_totals = self.gemini_source.parse_gemini_sessions()
 
             self.all_sessions = sorted(
-                claude_sessions + opencode_sessions + antigravity_sessions,
+                claude_sessions + opencode_sessions + antigravity_sessions + gemini_sessions,
                 key=lambda x: x["mtime"], reverse=True,
             )
             self.cached_totals = {
-                "input":  claude_totals["input"]  + opencode_totals["input"]  + antigravity_totals["input"],
-                "output": claude_totals["output"] + opencode_totals["output"] + antigravity_totals["output"],
-                "cacheR": claude_totals["cacheR"] + opencode_totals["cacheR"] + antigravity_totals["cacheR"],
-                "cacheW": claude_totals["cacheW"] + opencode_totals["cacheW"] + antigravity_totals["cacheW"],
+                "input":  claude_totals["input"]  + opencode_totals["input"]  + antigravity_totals["input"] + gemini_totals["input"],
+                "output": claude_totals["output"] + opencode_totals["output"] + antigravity_totals["output"] + gemini_totals["output"],
+                "cacheR": claude_totals["cacheR"] + opencode_totals["cacheR"] + antigravity_totals["cacheR"] + gemini_totals["cacheR"],
+                "cacheW": claude_totals["cacheW"] + opencode_totals["cacheW"] + antigravity_totals["cacheW"] + gemini_totals["cacheW"],
             }
             self.last_update_time = time.time()
         except Exception:
