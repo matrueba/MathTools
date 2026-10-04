@@ -18,13 +18,14 @@ from web.serializers import (
     serialize_totals,
     summarize_sessions,
 )
-from web.server import WebDashboard, _repo_root, create_app
+from web.server import MathToolsServer, create_app
+from web.paths import repo_root as _repo_root
 from constants.web import AGENT_PROVIDERS, FRONTEND_DIST_DIR, WEB_PORT
 
 
 @pytest.fixture
-def client():
-    return TestClient(create_app())
+def client(tmp_path):
+    return TestClient(create_app(db_path=tmp_path / "mathtools.db"))
 
 
 # ── Mock data ───────────────────────────────────────────────────────────────
@@ -118,65 +119,35 @@ def test_health_endpoint(client):
     assert response.json()["status"] == "ok"
 
 
-def test_agents_endpoint_lists_every_provider(client):
-    response = client.get("/api/agents")
+def test_agents_endpoint_lists_every_provider(web_client):
+    response = web_client.get("/api/agents")
     assert response.status_code == 200
 
     agents = response.json()["agents"]
-    assert len(agents) == len(AGENT_PROVIDERS)
+    assert [a["id"] for a in agents] == [p["id"] for p in AGENT_PROVIDERS]
+    assert all(a["enabled"] == p["enabled"] for a, p in zip(agents, AGENT_PROVIDERS))
 
+    # Only sessions of registered projects count: mathtools and dotfiles.
     claude = next(a for a in agents if a["id"] == "claude")
-    assert claude["enabled"] is True
-    assert claude["sessionCount"] > 0
-
-    # Gemini is the remaining "coming soon" provider.
-    gemini = next(a for a in agents if a["id"] == "gemini")
-    assert gemini["enabled"] is False
-    assert gemini["sessionCount"] == 0
+    assert claude["sessionCount"] == 3
 
 
-def test_agents_endpoint_reports_dashboard_stats_per_provider(client):
-    agents = client.get("/api/agents").json()["agents"]
+def test_agents_endpoint_reports_dashboard_stats_per_provider(web_client):
+    agents = web_client.get("/api/agents").json()["agents"]
 
     claude = next(a for a in agents if a["id"] == "claude")
     assert claude["stats"]["sessions"]["total"] == claude["sessionCount"]
     assert claude["stats"]["tokens"]["total"] > 0
-    assert claude["stats"]["projects"] > 0
-
-    # A provider with no sessions still reports a zeroed stats block, so the
-    # UI can render the same layout for every card.
-    gemini = next(a for a in agents if a["id"] == "gemini")
-    assert gemini["stats"]["sessions"] == {"total": 0, "active": 0, "idle": 0}
-    assert gemini["stats"]["tokens"]["total"] == 0
-    assert gemini["stats"]["quota"] is None
+    assert claude["stats"]["projects"] == 2
 
 
-def test_stats_endpoint(client):
-    body = client.get("/api/stats").json()
-    assert body["sessions"]["total"] > 0
-    assert body["tokens"]["total"] > 0
-
-
-def test_sessions_endpoint_is_sorted_by_recency(client):
-    sessions = client.get("/api/sessions").json()["sessions"]
-    assert len(sessions) > 1
-
-    timestamps = [s["updatedAt"] for s in sessions]
-    assert timestamps == sorted(timestamps, reverse=True)
-
-
-def test_session_detail_endpoint(client):
-    sessions = client.get("/api/sessions").json()["sessions"]
-    target = sessions[0]
-
-    response = client.get(f"/api/sessions/{target['id']}")
-    assert response.status_code == 200
-    assert response.json()["id"] == target["id"]
-
-
-def test_session_detail_returns_404_for_unknown_id(client):
-    response = client.get("/api/sessions/does-not-exist")
-    assert response.status_code == 404
+def test_agents_endpoint_without_projects_reports_zeroed_stats(client):
+    """A provider with no sessions still gets a stats block, so every card renders alike."""
+    for agent in client.get("/api/agents").json()["agents"]:
+        assert agent["sessionCount"] == 0
+        assert agent["stats"]["sessions"] == {"total": 0, "active": 0, "idle": 0}
+        assert agent["stats"]["tokens"]["total"] == 0
+        assert agent["stats"]["quota"] is None
 
 
 # ── Projects ────────────────────────────────────────────────────────────────
@@ -236,9 +207,9 @@ def test_summarize_sessions_derives_totals_when_not_given():
     assert result["tokens"]["input"] == 10
 
 
-def test_projects_endpoint_groups_sessions(client):
-    projects = client.get("/api/projects").json()["projects"]
-    assert projects
+def test_projects_endpoint_groups_sessions(web_client):
+    projects = web_client.get("/api/projects").json()["projects"]
+    assert {p["id"] for p in projects} == {"mathtools", "dotfiles"}
 
     by_id = {p["id"]: p for p in projects}
     # mathtools has sessions from Claude, Opencode and Codex.
@@ -251,64 +222,42 @@ def test_projects_endpoint_groups_sessions(client):
     assert updated == sorted(updated, reverse=True)
 
 
-def test_project_detail_includes_only_its_own_sessions(client):
-    detail = client.get("/api/projects/mathtools").json()
+def test_project_detail_includes_only_its_own_sessions(web_client):
+    detail = web_client.get("/api/projects/mathtools").json()
+    sessions = [s for agent in detail["agents"] for s in agent["sessions"]]
 
     assert detail["id"] == "mathtools"
-    assert len(detail["sessions"]) == 4
-    assert all(s["project"] == "mathtools" for s in detail["sessions"])
+    assert len(sessions) == 4
+    assert {s["projectPath"] for s in sessions} == {web_client.repo_paths["mathtools"]}
 
-    timestamps = [s["updatedAt"] for s in detail["sessions"]]
-    assert timestamps == sorted(timestamps, reverse=True)
+    for agent in detail["agents"]:
+        timestamps = [s["updatedAt"] for s in agent["sessions"]]
+        assert timestamps == sorted(timestamps, reverse=True)
 
 
 def test_project_detail_returns_404_for_unknown_project(client):
     assert client.get("/api/projects/nope").status_code == 404
 
 
-def test_project_session_counts_add_up_to_the_global_total(client):
-    projects = client.get("/api/projects").json()["projects"]
-    sessions = client.get("/api/sessions").json()["sessions"]
-
-    assert sum(p["stats"]["sessions"]["total"] for p in projects) == len(sessions)
-
-
 # ── Sessions grouped by provider ────────────────────────────────────────────
 
-def test_project_detail_groups_sessions_by_provider(client):
-    detail = client.get("/api/projects/mathtools").json()
-    groups = detail["providers"]
+def test_project_detail_groups_sessions_by_provider(web_client):
+    detail = web_client.get("/api/projects/mathtools").json()
+    groups = detail["agents"]
 
     # mathtools has Claude, Opencode and Codex sessions in the mock.
     assert [g["tag"] for g in groups] == ["CL", "OC", "CX"]
-    assert sum(len(g["sessions"]) for g in groups) == len(detail["sessions"])
+    assert sum(len(g["sessions"]) for g in groups) == detail["stats"]["sessions"]["total"]
 
     for group in groups:
         assert group["stats"]["sessions"]["total"] == len(group["sessions"])
         assert all(s["agent"] == group["tag"] for s in group["sessions"])
 
 
-def test_provider_groups_omit_providers_without_sessions(client):
+def test_provider_groups_omit_providers_without_sessions(web_client):
     """dotfiles only has a Claude session, so no empty groups appear."""
-    groups = client.get("/api/projects/dotfiles").json()["providers"]
+    groups = web_client.get("/api/projects/dotfiles").json()["agents"]
     assert [g["tag"] for g in groups] == ["CL"]
-
-
-def test_unreported_metrics_stay_none_rather_than_zero(client):
-    """
-    Codex reports no cache usage and no turn count. Those must serialize as
-    null so the UI shows "—" instead of a zero it would read as a real value.
-    """
-    groups = client.get("/api/projects/mathtools").json()["providers"]
-    codex = next(g for g in groups if g["tag"] == "CX")
-    session = codex["sessions"][0]
-
-    assert session["tokens"]["cacheRead"] is None
-    assert session["tokens"]["cacheWrite"] is None
-    assert session["turnCount"] is None
-    # ...but the aggregate still counts them as zero.
-    assert codex["stats"]["tokens"]["cacheRead"] == 0
-    assert codex["stats"]["tokens"]["total"] > 0
 
 
 # ── Chat transcripts ────────────────────────────────────────────────────────
@@ -322,20 +271,6 @@ def test_serialize_message_keeps_optional_fields():
     assert result["role"] == "tool"
     assert result["tool"]["name"] == "Read"
     assert result["tokens"] is None
-
-
-def test_session_messages_endpoint(client):
-    sessions = client.get("/api/sessions").json()["sessions"]
-    target = next(s for s in sessions if s["agent"] == "CL")
-
-    body = client.get(f"/api/sessions/{target['id']}/messages").json()
-    assert body["sessionId"] == target["id"]
-    assert body["messages"]
-    assert all(m["role"] in {"user", "assistant", "tool"} for m in body["messages"])
-
-
-def test_session_messages_404_for_unknown_session(client):
-    assert client.get("/api/sessions/nope/messages").status_code == 404
 
 
 # ── Harness ─────────────────────────────────────────────────────────────────
@@ -372,27 +307,31 @@ def test_serialize_harness_without_installer_support():
     assert result["targetDir"] is None
 
 
-def test_harness_endpoint_lists_all_providers(client):
-    body = client.get("/api/projects/mathtools/harness").json()
+def test_harness_endpoint_lists_all_providers(web_client):
+    body = web_client.get("/api/projects/mathtools/harness").json()
     providers = {p["id"]: p for p in body["providers"]}
 
     assert len(providers) == len(AGENT_PROVIDERS)
     assert providers["claude"]["installed"] is True
     assert providers["claude"]["componentCount"] == 7
     assert providers["claude"]["updateAvailable"] is True
-    # Declared but not installed in this project.
-    assert providers["gemini"]["installed"] is False
-    assert providers["gemini"]["installable"] is True
     # Codex has sessions but no environment the installer can deploy.
     assert providers["codex"]["installable"] is False
+
+
+def test_harness_lists_providers_that_are_not_installed(web_client):
+    providers = web_client.get("/api/projects/dotfiles/harness").json()["providers"]
+    claude = next(p for p in providers if p["id"] == "claude")
+    assert claude["installed"] is False
+    assert claude["installable"] is True
 
 
 def test_harness_404_for_unknown_project(client):
     assert client.get("/api/projects/nope/harness").status_code == 404
 
 
-def test_install_harness_is_simulated_only(client):
-    response = client.post(
+def test_install_harness_is_simulated_only(web_client):
+    response = web_client.post(
         "/api/projects/mathtools/harness/claude",
         json={"scope": "local", "components": ["skills"]},
     )
@@ -402,29 +341,29 @@ def test_install_harness_is_simulated_only(client):
     assert body["status"] == "simulated"
     assert body["applied"] is False
     assert body["components"] == ["skills"]
-    assert body["target"] == "/root/mathtools/.claude"
+    assert body["target"] == f"{web_client.repo_paths['mathtools']}/.claude"
 
 
-def test_install_harness_global_scope_targets_the_home_dir(client):
-    body = client.post(
+def test_install_harness_global_scope_targets_the_home_dir(web_client):
+    body = web_client.post(
         "/api/projects/mathtools/harness/claude", json={"scope": "global"}
     ).json()
     assert body["target"] == "~/.claude"
 
 
-def test_install_harness_defaults_to_every_component(client):
-    body = client.post("/api/projects/mathtools/harness/claude", json={}).json()
+def test_install_harness_defaults_to_every_component(web_client):
+    body = web_client.post("/api/projects/mathtools/harness/claude", json={}).json()
     assert body["components"] == ["agents", "commands", "skills"]
 
 
-def test_install_harness_rejects_a_provider_without_an_environment(client):
-    response = client.post("/api/projects/mathtools/harness/codex", json={})
+def test_install_harness_rejects_a_provider_without_an_environment(web_client):
+    response = web_client.post("/api/projects/mathtools/harness/codex", json={})
     assert response.status_code == 400
 
 
-def test_install_harness_404s(client):
-    assert client.post("/api/projects/nope/harness/claude", json={}).status_code == 404
-    assert client.post("/api/projects/mathtools/harness/nope", json={}).status_code == 404
+def test_install_harness_404s(web_client):
+    assert web_client.post("/api/projects/nope/harness/claude", json={}).status_code == 404
+    assert web_client.post("/api/projects/mathtools/harness/nope", json={}).status_code == 404
 
 
 # ── Frontend mount ──────────────────────────────────────────────────────────
@@ -458,11 +397,11 @@ def test_built_frontend_is_mounted_when_present(client):
 
 # ── Dashboard launcher ──────────────────────────────────────────────────────
 
-def test_web_dashboard_defaults():
-    dashboard = WebDashboard()
-    assert dashboard.port == WEB_PORT
+def test_server_defaults():
+    server = MathToolsServer()
+    assert server.port == WEB_PORT
 
 
-def test_web_dashboard_accepts_overrides():
-    dashboard = WebDashboard(host="0.0.0.0", port=9000)
-    assert (dashboard.host, dashboard.port) == ("0.0.0.0", 9000)
+def test_server_accepts_overrides():
+    server = MathToolsServer(host="0.0.0.0", port=9000)
+    assert (server.host, server.port) == ("0.0.0.0", 9000)

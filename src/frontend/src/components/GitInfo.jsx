@@ -21,7 +21,8 @@ export const IconBranch = (props) => (
 
 /** Branch, working-tree state and divergence from the remote. */
 export function GitChips({ git }) {
-  if (!git) return null
+  // A newly registered project has no git metadata until the backend inspects it.
+  if (!git?.branch) return null
 
   return (
     <div className="chips">

@@ -14,7 +14,7 @@ import { formatTokens } from '../../utils/format.js'
  */
 export default function SessionsTab({ project, sessionId }) {
   const navigate = useNavigate()
-  const providers = project.providers ?? []
+  const agents = project.agents ?? []
 
   const open = (session) =>
     navigate(`/projects/${project.id}/sessions/${session.id}`)
@@ -27,7 +27,7 @@ export default function SessionsTab({ project, sessionId }) {
   let openSession = null
   let openProvider = null
   if (sessionId) {
-    for (const p of providers) {
+    for (const p of agents) {
       const found = p.sessions.find((s) => s.id === sessionId)
       if (found) {
         openSession = found
@@ -37,7 +37,7 @@ export default function SessionsTab({ project, sessionId }) {
     }
   }
 
-  if (!providers.length) {
+  if (!agents.length) {
     return (
       <div className="card">
         <div className="state">
@@ -55,6 +55,7 @@ export default function SessionsTab({ project, sessionId }) {
   if (openSession) {
     return (
       <SessionWindow
+        projectId={project.id}
         session={openSession}
         provider={openProvider}
         onClose={close}
@@ -62,7 +63,7 @@ export default function SessionsTab({ project, sessionId }) {
     )
   }
 
-  return providers.map((p) => (
+  return agents.map((p) => (
     <section className="provider-group" key={p.id}>
       <div className="provider-group__head">
         <span

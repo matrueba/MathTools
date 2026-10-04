@@ -151,7 +151,8 @@ def serialize_project(repo: dict, sessions: list[dict]) -> dict:
     last_commit = repo.get("lastCommit") or {}
 
     return {
-        "id": repo.get("name", ""),
+        # Registered projects carry a slug id; mock repos are keyed by name.
+        "id": repo.get("id") or repo.get("name", ""),
         "name": repo.get("name", ""),
         "path": repo.get("path", ""),
         "git": {
@@ -174,5 +175,7 @@ def serialize_project(repo: dict, sessions: list[dict]) -> dict:
         "stats": summarize_sessions(sessions),
         # Which providers have touched this project, e.g. ["CL"].
         "agents": sorted({s.get("AI", "?") for s in sessions}),
-        "updatedAt": max((s.get("mtime", 0) for s in sessions), default=0),
+        "updatedAt": max(
+            (s.get("mtime", 0) for s in sessions), default=repo.get("createdAt", 0)
+        ),
     }

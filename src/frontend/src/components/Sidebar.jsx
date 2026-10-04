@@ -12,7 +12,7 @@ const NAV_ITEMS = [
   { to: '/settings', label: 'Settings', icon: IconSettings },
 ]
 
-export default function Sidebar({ projectCount }) {
+export default function Sidebar({ projectCount, activeCount }) {
   const { data } = useApi(api.agents, { intervalMs: 0 })
 
   const counts = { projects: projectCount }
@@ -23,7 +23,7 @@ export default function Sidebar({ projectCount }) {
         <div className="sidebar__logo">M</div>
         <div>
           <div className="sidebar__title">MathTools</div>
-          <div className="sidebar__version">Agent Control</div>
+          <div className="sidebar__version">Agent Management</div>
         </div>
       </div>
 
@@ -49,10 +49,13 @@ export default function Sidebar({ projectCount }) {
         })}
       </nav>
 
-
-
-      <div className="sidebar__foot">
-        Mock data · no agent is being controlled yet
+      {/* Sessions working right now, across every project. The label hides
+          when the sidebar collapses to icons; the dot stays. */}
+      <div className="sidebar__foot" title={`${activeCount} active sessions`}>
+        <span className={activeCount ? 'dot dot--work' : 'dot'} />
+        <span className="sidebar__foot-label">
+          {activeCount ? `${activeCount} active` : 'Idle'}
+        </span>
       </div>
     </aside>
   )

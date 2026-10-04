@@ -3,7 +3,7 @@ FastAPI backend for the MathTools web dashboard.
 
 Data is mocked for now (see `mock_data.py`); the route handlers already speak
 the monitoring session contract, so wiring in the real `ClaudeSource` later
-means swapping `DataStore.load_sessions` and nothing else — see `data.py`.
+means swapping `DataStore.load_agent_sessions` and nothing else — see `data.py`.
 
 Routes are grouped by resource under `routes/`, each a small class that
 registers its own endpoints in `__init__` (constructor) and implements each
@@ -12,23 +12,35 @@ only wires those routers together; it holds no route logic of its own.
 """
 
 from constants.general import VERSION
-from constants.web import DEV_ORIGINS, WEB_HOST, WEB_PORT, FRONTEND_DIST_DIR
-from utils.ui import console
+from constants.web import DB_PATH, DEV_ORIGINS, WEB_HOST, WEB_PORT, FRONTEND_DIST_DIR
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
+
 
 from .data import DataStore
+from .events import EventHub
+from .db import Database, ProjectStore
 from .paths import repo_root
-from .routes import AgentsRouter, HealthRouter, ProjectsRouter, SessionsRouter
+from .routes import (
+    AgentsRouter,
+    EventsRouter,
+    FilesystemRouter,
+    HealthRouter,
+    ProjectsRouter,
+    SessionsRouter,
+)
 from .spa import mount_frontend
 
-# Re-exported: tests and other modules import path resolution through here.
-_repo_root = repo_root
 
 
-def create_app():
-    """Build the FastAPI application by wiring up each resource's router."""
+def create_app(db_path: str | None = None):
+    """
+    Build the FastAPI application by wiring up each resource's router.
+
+    `db_path` overrides DB_PATH so tests can point at a throwaway file.
+    """
 
     app = FastAPI(
         title="MathTools Agent Management",
@@ -47,12 +59,19 @@ def create_app():
 
     # One DataStore instance shared by every router, so a per-request cache
     # (once there is a real backing store) only has to live in one place.
-    data_store = DataStore()
+    database = Database(db_path or DB_PATH)
+    database.init_schema()
+    data_store = DataStore(ProjectStore(database))
+    # Exposed so tests can reach the store the routes actually use.
+    app.state.data_store = data_store
+    app.state.event_hub = EventHub(data_store)
     routers = [
         HealthRouter(),
         AgentsRouter(data_store),
         ProjectsRouter(data_store),
         SessionsRouter(data_store),
+        EventsRouter(app.state.event_hub),
+        FilesystemRouter(),
     ]
     for router in routers:
         app.include_router(router.router, prefix="/api")
@@ -64,37 +83,40 @@ def create_app():
     return app
 
 
-class WebDashboard:
-    """Launches the dashboard from the `mathtools` main menu."""
+class _Server(uvicorn.Server):
+    """uvicorn.Server that ends the live-update streams as soon as it is told to stop."""
+
+    def __init__(self, config: uvicorn.Config, hub: EventHub):
+        super().__init__(config)
+        self.hub = hub
+
+    def handle_exit(self, sig, frame) -> None:
+        self.hub.close()
+        super().handle_exit(sig, frame)
+
+
+class MathToolsServer:
+    """Launches the dashboard; this is what the `mathtools` command runs."""
 
     def __init__(self, host: str = WEB_HOST, port: int = WEB_PORT):
         self.host = host
         self.port = port
 
-    def run_web_dashboard(self) -> None:
-
-
-        dist_dir = repo_root() / FRONTEND_DIST_DIR
-        url = f"http://{self.host}:{self.port}"
-
-        console.print(f"\n[bold bright_magenta]🌐  Agent Control Dashboard[/]")
-        console.print(f"[dim]   API:[/] [bright_cyan]{url}/api/docs[/]")
-
-        if dist_dir.is_dir():
-            console.print(f"[dim]   UI :[/] [bright_cyan]{url}[/]")
-        else:
-            console.print(
-                f"[dim]   UI :[/] [yellow]frontend not built[/] "
-                f"[dim]— run `npm install && npm run build` in src/frontend,[/]\n"
-                f"[dim]        or `npm run dev` for the Vite dev server on :5173[/]"
-            )
-
-        console.print("[dim]   Press Ctrl+C to stop.[/]\n")
-
+    def run_server(self) -> None:
+        app = create_app()
+        config = uvicorn.Config(
+            app,
+            host=self.host,
+            port=self.port,
+            log_level="warning",
+            # Backstop for responses that are not SSE streams, such as an
+            # agent turn still streaming: they get this long to finish.
+            timeout_graceful_shutdown=2,
+        )
         try:
-            uvicorn.run(create_app(), host=self.host, port=self.port, log_level="warning")
+            _Server(config, app.state.event_hub).run()
         except KeyboardInterrupt:
-            console.print("\n[dim]Dashboard stopped.[/]")
+            logging.error("Dashboard stopped.")
 
 
 # `uvicorn web.server:app --reload` for backend-only development.

@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 
 import QueryState from '../components/QueryState.jsx'
 import Tabs from '../components/Tabs.jsx'
@@ -6,7 +6,7 @@ import OverviewTab from './project/OverviewTab.jsx'
 import SessionsTab from './project/SessionsTab.jsx'
 import HarnessTab from './project/HarnessTab.jsx'
 import { api } from '../api/client.js'
-import { useApi } from '../hooks/useApi.js'
+import { useLiveApi } from '../hooks/useLiveApi.js'
 
 const TABS = {
   overview: OverviewTab,
@@ -21,9 +21,12 @@ export default function ProjectDetail() {
   // tab, so the tab stays highlighted while the session window is open.
   const activeTab = sessionId ? 'sessions' : tab ?? 'overview'
 
-  // `key` is what makes navigating between projects refetch.
-  const { data, loading, error } = useApi(() => api.project(projectId), {
+  // `key` is what makes navigating between projects refetch; `accept` keeps
+  // the live `project` events of other projects out.
+  const { data, loading, error } = useLiveApi(() => api.project(projectId), {
+    event: 'project',
     key: projectId,
+    accept: (p) => p.id === projectId,
   })
 
   const ActiveTab = TABS[activeTab] ?? OverviewTab
@@ -32,19 +35,13 @@ export default function ProjectDetail() {
     <QueryState loading={loading} error={error}>
       {data && (
         <>
-          <div className="crumbs">
-            <Link to="/projects">Projects</Link>
-            <span>/</span>
-            <span className="crumbs__current">{data.name}</span>
-          </div>
-
           <Tabs
             tabs={[
               { to: `/projects/${projectId}`, label: 'Overview', end: true },
               {
                 to: `/projects/${projectId}/sessions`,
                 label: 'Sessions',
-                count: data.sessions.length,
+                count: data.stats.sessions.total,
               },
               { to: `/projects/${projectId}/harness`, label: 'Harness' },
             ]}

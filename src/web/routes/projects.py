@@ -4,12 +4,21 @@ state (skills/agents/commands the installer has deployed into each one).
 """
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from constants.environments import ENVIRONMENTS
 from constants.web import AGENT_PROVIDERS
 
-from ..data import DataStore
-from ..serializers import serialize_harness, serialize_session
+from ..data import DataStore, InvalidProjectError
+from ..db import DuplicateProjectError
+from ..serializers import serialize_harness
+
+
+class ProjectCreate(BaseModel):
+    """Body of POST /projects. `name` defaults to the repository folder name."""
+
+    path: str
+    name: str | None = None
 
 
 class ProjectsRouter:
@@ -25,6 +34,9 @@ class ProjectsRouter:
         self.router = APIRouter()
         self.router.add_api_route("/projects", self.list_projects, methods=["GET"])
         self.router.add_api_route(
+            "/projects", self.create_project, methods=["POST"], status_code=201
+        )
+        self.router.add_api_route(
             "/projects/{project_id}", self.project_detail, methods=["GET"]
         )
         self.router.add_api_route(
@@ -38,24 +50,30 @@ class ProjectsRouter:
 
     def list_projects(self) -> dict:
         """Git repositories with the agent sessions running inside them."""
-        return {"projects": self.data_store.build_projects()}
+        return {"projects": self.data_store.get_projects()}
+
+    def create_project(self, payload: ProjectCreate) -> dict:
+        """Register a local git repository as a tracked project."""
+        try:
+            return self.data_store.register_project(payload.path, payload.name)
+        except InvalidProjectError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except DuplicateProjectError as exc:
+            raise HTTPException(
+                status_code=409, detail="A project with that name or path already exists"
+            ) from exc
 
     def project_detail(self, project_id: str) -> dict:
-        """One project, plus its sessions ordered by recency and grouped by provider."""
+        """
+        One project with its sessions nested under the agent that ran them —
+        the same `agents` payload as /projects/{id}/agents, inlined so the
+        project page needs a single request.
+        """
         project = self.data_store.find_project(project_id)
         if project is None:
             raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
 
-        raw, _ = self.data_store.load_sessions()
-        owned = [s for s in raw if s.get("ProjectPath") == project["path"]]
-        owned.sort(key=lambda s: s.get("mtime", 0), reverse=True)
-
-        return {
-            **project,
-            "sessions": [serialize_session(s) for s in owned],
-            # The Sessions tab renders one block per provider.
-            "providers": self.data_store.group_by_provider(owned),
-        }
+        return self.data_store.project_detail(project)
 
     def project_harness(self, project_id: str) -> dict:
         """
@@ -90,8 +108,9 @@ class ProjectsRouter:
         Install or update a provider's harness in this project.
 
         NOT WIRED UP: this reports what the installer *would* do and changes
-        nothing on disk. Running it for real means calling FrameworkInstaller
-        with the selected environment, scope and components.
+        nothing on disk. Running it for real means calling `download_repo_zips()` and
+        `extract_environment()` from `web/installer.py` with the selected
+        environment, scope and components.
         """
         project = self.data_store.find_project(project_id)
         if project is None:

@@ -4,10 +4,6 @@ Shared pytest fixtures for the MathTools test suite.
 
 import sys
 import os
-import json
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,50 +18,6 @@ def tmp_dir(tmp_path):
     os.chdir(tmp_path)
     yield tmp_path
     os.chdir(original_cwd)
-
-
-@pytest.fixture
-def mock_console(monkeypatch):
-    """Patch the shared console to suppress output during tests."""
-    mock = MagicMock()
-    monkeypatch.setattr("utils.ui.console", mock)
-    return mock
-
-
-@pytest.fixture
-def sample_config(tmp_path):
-    """Create a sample config file and return its path."""
-    config_data = {"obsidian_vault_path": str(tmp_path / "vault")}
-    config_file = tmp_path / ".mathtools.json"
-    config_file.write_text(json.dumps(config_data))
-    return config_file
-
-
-@pytest.fixture
-def sample_vault(tmp_path):
-    """Create a sample Obsidian vault structure for testing."""
-    vault = tmp_path / "vault"
-    vault.mkdir()
-
-    # Create markdown files
-    (vault / "note1.md").write_text("# Note 1\nSome content")
-    (vault / "note2.md").write_text("# Note 2\nMore content")
-
-    # Create a non-markdown file (should be ignored)
-    (vault / "image.png").write_bytes(b"\x89PNG")
-
-    # Create subdirectory with files
-    subdir = vault / "subfolder"
-    subdir.mkdir()
-    (subdir / "nested.md").write_text("# Nested\nNested content")
-
-    # Create ignored directories
-    (vault / ".obsidian").mkdir()
-    (vault / ".obsidian" / "config.json").write_text("{}")
-    (vault / ".git").mkdir()
-    (vault / ".git" / "HEAD").write_text("ref: refs/heads/main")
-
-    return vault
 
 
 @pytest.fixture
@@ -112,3 +64,66 @@ def skills_zip(sample_zip_bytes):
             "skills/skill2/SKILL.md": "# Skill 2",
         },
     )
+
+
+# Mock projects that the web fixture registers as real repositories.
+MOCK_PROJECTS = ("mathtools", "dotfiles")
+
+
+@pytest.fixture
+def web_client(tmp_path, monkeypatch):
+    """
+    API client with `mathtools` and `dotfiles` registered, backed by mock data.
+
+    The mock sessions and harness are keyed by paths like /root/mathtools;
+    those are re-homed onto real git repositories under tmp_path (on branch
+    `develop`) so registration and the ProjectPath join both work. Sessions
+    of mock projects that are not registered simply belong to no project.
+    """
+    import subprocess
+
+    from fastapi.testclient import TestClient
+
+    import web.data
+    from constants.web import AGENT_PROVIDERS
+    from web.mock_data import get_mock_harness, get_mock_sessions
+    from web.server import create_app
+
+    rehome, mock_path = {}, {}
+    for name in MOCK_PROJECTS:
+        repo = tmp_path / name
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "develop", str(repo)], check=True)
+        rehome[f"/root/{name}"] = str(repo.resolve())
+        mock_path[str(repo.resolve())] = f"/root/{name}"
+
+    sessions, _ = get_mock_sessions()
+    for s in sessions:
+        s["ProjectPath"] = rehome.get(s["ProjectPath"], s["ProjectPath"])
+    tags = {a["id"]: a["tag"] for a in AGENT_PROVIDERS}
+
+    def load_agent_sessions(self, project, agent=None):
+        owned = [
+            s for s in sessions
+            if s["ProjectPath"] == project["path"]
+            and (agent is None or s["AI"] == tags.get(agent))
+        ]
+        totals = {
+            "input": sum(s["InputTokens"] or 0 for s in owned),
+            "output": sum(s["OutputTokens"] or 0 for s in owned),
+            "cacheR": sum(s["CacheR"] or 0 for s in owned),
+            "cacheW": sum(s["CacheW"] or 0 for s in owned),
+        }
+        return owned, totals
+
+    def load_harness(self, project_path):
+        return get_mock_harness(mock_path.get(project_path, project_path))
+
+    monkeypatch.setattr(web.data.DataStore, "load_agent_sessions", load_agent_sessions)
+    monkeypatch.setattr(web.data.DataStore, "load_harness", load_harness)
+
+    client = TestClient(create_app(db_path=tmp_path / "mathtools.db"))
+    for repo_path in rehome.values():
+        assert client.post("/api/projects", json={"path": repo_path}).status_code == 201
+    client.repo_paths = {name: rehome[f"/root/{name}"] for name in MOCK_PROJECTS}
+    return client

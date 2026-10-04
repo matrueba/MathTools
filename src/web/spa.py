@@ -29,6 +29,10 @@ class SPAStaticFiles(StaticFiles):
             # with no error to debug.
             if "." in path.rsplit("/", 1)[-1]:
                 raise
+            # Same for the API: an unknown or removed endpoint must 404, not
+            # answer an API client with HTML and a 200.
+            if path == "api" or path.startswith("api/"):
+                raise
             return await super().get_response("index.html", scope)
 
 

@@ -1,12 +1,17 @@
 import { useState } from 'react'
 
+import AgentChat from './AgentChat.jsx'
+
 /**
  * Working surface for one session, opened from the Sessions list.
  *
  * It sits inside the content area rather than over it, so the sidebar stays
  * usable while it is open. Its inner tabs are local state: the session itself
  * is route-backed (deep-linkable), but which tab you were on is not worth a
- * URL segment until the tabs actually do something.
+ * URL segment.
+ *
+ * The Agent tab stays mounted while hidden, so switching to Interactions
+ * neither loses the conversation nor aborts a turn that is still running.
  */
 
 const TABS = [
@@ -14,7 +19,7 @@ const TABS = [
   { id: 'interactions', label: 'Interactions' },
 ]
 
-export default function SessionWindow({ session, provider, onClose }) {
+export default function SessionWindow({ projectId, session, provider, onClose }) {
   const [tab, setTab] = useState('agent')
 
   return (
@@ -56,8 +61,11 @@ export default function SessionWindow({ session, provider, onClose }) {
         ))}
       </div>
 
-      {/* Intentionally empty — both tabs get their content in a later pass. */}
-      <div className="session-window__body" />
+      <div className="session-window__body" hidden={tab !== 'agent'}>
+        <AgentChat projectId={projectId} agentId={provider?.id} session={session} />
+      </div>
+      {/* Interactions gets its content in a later pass. */}
+      <div className="session-window__body" hidden={tab !== 'interactions'} />
     </aside>
   )
 }

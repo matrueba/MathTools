@@ -51,8 +51,3 @@ export const IconGauge = (p) => (
   </svg>
 )
 
-export const IconRefresh = (p) => (
-  <svg {...base} {...p}>
-    <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
-  </svg>
-)

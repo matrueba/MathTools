@@ -4,9 +4,7 @@ version = "1.2.0"
 description = "CLI installer for MathTools AI Development Framework"
 requires-python = ">=3.10"
 dependencies = [
-    "rich>=13.0.0",
     "requests>=2.31.0",
-    "questionary>=2.0.1",
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",
 ]

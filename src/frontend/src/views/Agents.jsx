@@ -2,14 +2,14 @@ import QueryState from '../components/QueryState.jsx'
 import StatRow from '../components/StatRow.jsx'
 import TokenBreakdown from '../components/TokenBreakdown.jsx'
 import { api } from '../api/client.js'
-import { useApi } from '../hooks/useApi.js'
+import { useLiveApi } from '../hooks/useLiveApi.js'
 
 /**
  * One dashboard-style panel per provider: the same metrics the Dashboard
  * shows, scoped to that provider's sessions.
  */
 export default function Agents() {
-  const { data, loading, error } = useApi(api.agents)
+  const { data, loading, error } = useLiveApi(api.agents, { event: 'agents' })
   const agents = data?.agents ?? []
 
   return (
