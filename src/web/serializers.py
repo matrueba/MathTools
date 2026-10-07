@@ -19,14 +19,23 @@ def serialize_message(message: dict) -> dict:
     }
 
 
-def serialize_harness(provider: dict, installed: dict | None, env: dict | None) -> dict:
+def serialize_harness(
+    provider: dict,
+    installed: dict | None,
+    env: dict | None,
+    existing: dict | None = None,
+    roots: dict | None = None,
+) -> dict:
     """
     One provider's harness state inside a project.
 
     `installed` is what is on disk (None when absent); `env` is the installer's
     ENVIRONMENTS entry, which says what *could* be installed and from where.
     A provider with no `env` can still have sessions — it just has nothing the
-    installer knows how to deploy.
+    installer knows how to deploy. `existing` maps each scope to the
+    destinations an install there would write into that already exist, so the
+    UI can warn before overwriting. `updateAvailable` is None when unknown
+    (not installed by mathtools, or upstream unreachable).
     """
     components = (installed or {}).get("components", {}) or {}
 
@@ -48,7 +57,11 @@ def serialize_harness(provider: dict, installed: dict | None, env: dict | None) 
         "installed": installed is not None,
         "scope": (installed or {}).get("scope"),
         "installedAt": (installed or {}).get("installedAt"),
-        "updateAvailable": (installed or {}).get("updateAvailable", False),
+        "updateAvailable": (installed or {}).get("updateAvailable"),
+        "existing": existing or {"local": [], "global": []},
+        # Absolute install folder per scope; `root` is the one in use.
+        "roots": roots or {"local": None, "global": None},
+        "root": (roots or {}).get((installed or {}).get("scope")),
         "components": {
             name: [
                 {"name": item.get("name"), "description": item.get("description", "")}
@@ -92,6 +105,10 @@ def serialize_session(session: dict) -> dict:
         },
         "quota": session.get("Quota"),
         "pids": session.get("PIDs", []),
+        # Open in another client (terminal, VS Code, …) right now. The chat
+        # is read-only while this holds; `liveIn` names where.
+        "live": bool(session.get("PIDs")),
+        "liveIn": session.get("LiveIn", []),
         "children": session.get("Children", []),
         "subagents": session.get("Subagents", []),
     }

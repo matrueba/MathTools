@@ -16,13 +16,7 @@ const TABS = {
 
 export default function ProjectDetail() {
   const { projectId, tab, sessionId } = useParams()
-
-  // An open session (/projects/:id/sessions/:sessionId) implies the Sessions
-  // tab, so the tab stays highlighted while the session window is open.
   const activeTab = sessionId ? 'sessions' : tab ?? 'overview'
-
-  // `key` is what makes navigating between projects refetch; `accept` keeps
-  // the live `project` events of other projects out.
   const { data, loading, error } = useLiveApi(() => api.project(projectId), {
     event: 'project',
     key: projectId,

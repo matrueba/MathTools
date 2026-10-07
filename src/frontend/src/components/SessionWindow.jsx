@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import AgentChat from './AgentChat.jsx'
+import InteractionGraph from './InteractionGraph.jsx'
 
 /**
  * Working surface for one session, opened from the Sessions list.
@@ -10,17 +11,17 @@ import AgentChat from './AgentChat.jsx'
  * is route-backed (deep-linkable), but which tab you were on is not worth a
  * URL segment.
  *
- * The Agent tab stays mounted while hidden, so switching to Interactions
+ * The Chat tab stays mounted while hidden, so switching to Interactions
  * neither loses the conversation nor aborts a turn that is still running.
  */
 
 const TABS = [
-  { id: 'agent', label: 'Agent' },
+  { id: 'chat', label: 'Chat' },
   { id: 'interactions', label: 'Interactions' },
 ]
 
 export default function SessionWindow({ projectId, session, provider, onClose }) {
-  const [tab, setTab] = useState('agent')
+  const [tab, setTab] = useState('chat')
 
   return (
     <aside className="session-window" aria-label={`Session ${session.id}`}>
@@ -61,11 +62,22 @@ export default function SessionWindow({ projectId, session, provider, onClose })
         ))}
       </div>
 
-      <div className="session-window__body" hidden={tab !== 'agent'}>
-        <AgentChat projectId={projectId} agentId={provider?.id} session={session} />
+      <div className="session-window__body" hidden={tab !== 'chat'}>
+        <AgentChat
+          projectId={projectId}
+          agentId={provider?.id}
+          agentLabel={provider?.label}
+          accent={provider?.accent}
+          session={session}
+        />
       </div>
-      {/* Interactions gets its content in a later pass. */}
-      <div className="session-window__body" hidden={tab !== 'interactions'} />
+      <div
+        className="session-window__body"
+        hidden={tab !== 'interactions'}
+        style={provider?.accent ? { '--agent-accent': provider.accent } : undefined}
+      >
+        <InteractionGraph projectId={projectId} agentId={provider?.id} session={session} />
+      </div>
     </aside>
   )
 }

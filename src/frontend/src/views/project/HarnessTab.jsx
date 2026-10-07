@@ -67,14 +67,20 @@ export default function HarnessTab({ project }) {
 
             {p.installed ? (
               <>
-                <span className="chip chip--branch">{p.targetDir}</span>
+                <span className="chip chip--branch" title={p.root}>
+                  {p.root}
+                </span>
                 <span className="chip">{p.scope}</span>
                 <span className="chip">{p.componentCount} components</span>
                 {p.updateAvailable && (
                   <span className="chip chip--dirty">update available</span>
                 )}
+                {/* No install date means it was found on disk but not put
+                    there by mathtools (no manifest). */}
                 <span className="harness__at">
-                  installed {formatRelative(p.installedAt)}
+                  {p.installedAt
+                    ? `installed ${formatRelative(p.installedAt)}`
+                    : 'not installed by mathtools'}
                 </span>
               </>
             ) : (
@@ -111,7 +117,6 @@ export default function HarnessTab({ project }) {
         <InstallMenu
           provider={menuFor}
           projectId={project.id}
-          projectPath={project.path}
           onClose={() => setMenuFor(null)}
           onApplied={refresh}
         />

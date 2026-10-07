@@ -52,6 +52,16 @@ class SessionsRouter:
             methods=["GET"],
         )
         self.router.add_api_route(
+            f"{BASE}/agents/{{agent_id}}/sessions/{{session_id}}/interactions",
+            self.session_interactions,
+            methods=["GET"],
+        )
+        self.router.add_api_route(
+            f"{BASE}/agents/{{agent_id}}/sessions/{{session_id}}/history",
+            self.session_history,
+            methods=["GET"],
+        )
+        self.router.add_api_route(
             f"{BASE}/agents/{{agent_id}}/sessions/{{session_id}}/prompt",
             self.session_prompt,
             methods=["POST"],
@@ -111,6 +121,22 @@ class SessionsRouter:
             ],
         }
 
+    def session_interactions(self, project_id: str, agent_id: str, session_id: str) -> dict:
+        """The agent → subagent graph of one session (mock-backed for now)."""
+        self._session(project_id, agent_id, session_id)
+        return self.data_store.load_interactions(agent_id, session_id)
+
+    def session_history(self, project_id: str, agent_id: str, session_id: str) -> dict:
+        """
+        The session's conversation so far, in the chat event vocabulary, so the
+        Agent tab can show it before (or instead of) continuing the session.
+        """
+        session = self._session(project_id, agent_id, session_id)
+        events = self.data_store.load_history(agent_id, session_id)
+        if events is None:
+            raise HTTPException(status_code=501, detail=f"History for {agent_id} is not supported yet")
+        return {"sessionId": session_id, "live": bool(session.get("PIDs")), "events": events}
+
     async def session_prompt(
         self, project_id: str, agent_id: str, session_id: str, body: PromptRequest
     ) -> StreamingResponse:
@@ -130,6 +156,13 @@ class SessionsRouter:
         if body.permissionMode not in PERMISSION_MODES:
             raise HTTPException(
                 status_code=400, detail=f"Unknown permission mode {body.permissionMode!r}"
+            )
+        # Open in a terminal or editor: a second writer would fork the session
+        # or interleave turns with the person using it there.
+        if session.get("PIDs"):
+            raise HTTPException(
+                status_code=409,
+                detail="This session is open in another Claude Code client; close it there first",
             )
         # Checked here as well as in the runner so a busy session is a clean
         # 409 instead of a stream that fails after the headers went out.

@@ -75,10 +75,13 @@ def web_client(tmp_path, monkeypatch):
     """
     API client with `mathtools` and `dotfiles` registered, backed by mock data.
 
-    The mock sessions and harness are keyed by paths like /root/mathtools;
-    those are re-homed onto real git repositories under tmp_path (on branch
-    `develop`) so registration and the ProjectPath join both work. Sessions
-    of mock projects that are not registered simply belong to no project.
+    The mock sessions are keyed by paths like /root/mathtools; those are
+    re-homed onto real git repositories under tmp_path (on branch `develop`)
+    so registration and the ProjectPath join both work. Sessions of mock
+    projects that are not registered simply belong to no project.
+
+    The harness is real (read from disk), so HOME points into tmp_path too:
+    global harness paths like ~/.claude/agents must never reach the real home.
     """
     import subprocess
 
@@ -86,16 +89,17 @@ def web_client(tmp_path, monkeypatch):
 
     import web.data
     from constants.web import AGENT_PROVIDERS
-    from web.mock_data import get_mock_harness, get_mock_sessions
+    from web.mock_data import get_mock_sessions
     from web.server import create_app
 
-    rehome, mock_path = {}, {}
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    rehome = {}
     for name in MOCK_PROJECTS:
         repo = tmp_path / name
         repo.mkdir()
         subprocess.run(["git", "init", "-q", "-b", "develop", str(repo)], check=True)
         rehome[f"/root/{name}"] = str(repo.resolve())
-        mock_path[str(repo.resolve())] = f"/root/{name}"
 
     sessions, _ = get_mock_sessions()
     for s in sessions:
@@ -116,11 +120,7 @@ def web_client(tmp_path, monkeypatch):
         }
         return owned, totals
 
-    def load_harness(self, project_path):
-        return get_mock_harness(mock_path.get(project_path, project_path))
-
     monkeypatch.setattr(web.data.DataStore, "load_agent_sessions", load_agent_sessions)
-    monkeypatch.setattr(web.data.DataStore, "load_harness", load_harness)
 
     client = TestClient(create_app(db_path=tmp_path / "mathtools.db"))
     for repo_path in rehome.values():

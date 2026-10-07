@@ -77,6 +77,12 @@ export const api = {
     request(`/projects/${projectId}/agents/${agentId}/sessions/${sessionId}`),
   sessionMessages: (projectId, agentId, sessionId) =>
     request(`/projects/${projectId}/agents/${agentId}/sessions/${sessionId}/messages`),
+  // Who launched whom in a session: { nodes, edges } (mock-backed for now).
+  sessionInteractions: (projectId, agentId, sessionId) =>
+    request(`/projects/${projectId}/agents/${agentId}/sessions/${sessionId}/interactions`),
+  // The conversation so far, in the same event vocabulary as promptSession.
+  sessionHistory: (projectId, agentId, sessionId) =>
+    request(`/projects/${projectId}/agents/${agentId}/sessions/${sessionId}/history`),
   // Runs one agent turn; see `stream` for the callback contract.
   promptSession: (projectId, agentId, sessionId, body, { signal, onEvent }) =>
     stream(`/projects/${projectId}/agents/${agentId}/sessions/${sessionId}/prompt`, {

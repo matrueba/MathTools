@@ -67,7 +67,8 @@ def test_parses_session_in_the_monitoring_contract(base):
     assert s["Project"] == "my_repo"
     assert s["Summary"] == "Fix the bug"
     assert s["Model"] == "claude-opus-4.6"
-    assert s["ContextWindow"] == 200000
+    # A model missing from MODEL_CONTEXT_WINDOW["claude"] gets the default.
+    assert s["ContextWindow"] == claude.DEFAULT_CONTEXT_WINDOW
     # Tool results are not turns.
     assert s["TurnCount"] == 1
     assert s["Status"] == "Work"  # just written
@@ -133,14 +134,48 @@ def test_missing_base_dir_is_empty(tmp_path):
     assert sessions == []
 
 
-def test_live_pids_come_from_the_registry(base, tmp_path, monkeypatch):
+def _register(tmp_path, pid, session_id, **extra):
     live = tmp_path / "live"
-    live.mkdir()
-    (live / "123.json").write_text(json.dumps({"pid": 123, "sessionId": "s1"}))
-    (live / "456.json").write_text(json.dumps({"pid": 456, "sessionId": "other"}))
-    monkeypatch.setattr(claude.os.path, "exists", lambda p: p == "/proc/123")
+    live.mkdir(exist_ok=True)
+    (live / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": session_id, **extra}))
 
-    assert parse_claude_sessions(base_dir=base)[0][0]["PIDs"] == ["123"]
+
+def test_live_pids_come_from_the_registry(base, tmp_path, monkeypatch):
+    _register(tmp_path, 123, "s1", entrypoint="claude-vscode")
+    _register(tmp_path, 456, "other")
+    _register(tmp_path, 789, "s1")  # registry file outlived its process
+    monkeypatch.setattr(claude, "_process_alive", lambda pid, start: pid in ("123", "456"))
+
+    s = parse_claude_sessions(base_dir=base)[0][0]
+    assert s["PIDs"] == ["123"]
+    assert s["LiveIn"] == ["claude-vscode"]
+
+
+def test_processes_the_dashboard_spawned_do_not_count_as_live(base, tmp_path, monkeypatch):
+    _register(tmp_path, 123, "s1", entrypoint="cli")
+    monkeypatch.setattr(claude, "_process_alive", lambda pid, start: True)
+    monkeypatch.setattr(claude, "DASHBOARD_PIDS", {"123"})
+
+    s = parse_claude_sessions(base_dir=base)[0][0]
+    assert s["PIDs"] == [] and s["LiveIn"] == []
+
+
+def test_a_reused_pid_is_not_the_registered_process(monkeypatch):
+    pid = str(os.getpid())
+    with open(f"/proc/{pid}/stat") as f:
+        start = f.read().rpartition(")")[2].split()[19]
+
+    assert claude._process_alive(pid, start)
+    assert claude._process_alive(pid, None)  # older registry entries
+    assert not claude._process_alive(pid, str(int(start) + 1))
+    assert not claude._process_alive("999999999", None)
+
+
+def test_read_transcript_finds_the_session_in_any_project_folder(base):
+    records = claude.read_transcript("s1", base_dir=base)
+    assert records[0]["message"]["content"] == "fix the bug"
+    assert claude.read_transcript("missing", base_dir=base) == []
+    assert claude.read_transcript("../s1", base_dir=base) == []
 
 
 def test_unchanged_transcripts_are_served_from_cache(base, monkeypatch):
@@ -158,3 +193,12 @@ def test_project_path_keeps_only_that_projects_sessions(base):
     sessions, totals = parse_claude_sessions("/somewhere/else", base_dir=base)
     assert sessions == []
     assert totals == {"input": 0, "output": 0, "cacheR": 0, "cacheW": 0}
+
+
+def test_context_window_is_looked_up_by_the_recorded_api_id(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.sources.models.MODEL_CONTEXT_WINDOW", {"claude": {"haiku-4.5": 200_000}})
+    _write(tmp_path / "p" / "s.jsonl", [
+        {"type": "user", "cwd": CWD, "message": {"content": "hi"}},
+        _assistant("m1", {"type": "text"}, USAGE, model="claude-haiku-4-5-20251001"),
+    ])
+    assert parse_claude_sessions(base_dir=tmp_path)[0][0]["ContextWindow"] == 200_000

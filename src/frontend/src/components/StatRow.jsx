@@ -40,17 +40,6 @@ export default function StatRow({ stats, showProjects = true, muted = false }) {
           accent={accent('var(--magenta)')}
         />
       )}
-      <StatCard
-        label="5h quota"
-        value={quotaValue}
-        foot={
-          quota?.seven_day_pct != null
-            ? `${quota.seven_day_pct.toFixed(1)}% of the 7-day window`
-            : 'No rate limit data'
-        }
-        icon={IconGauge}
-        accent={accent('var(--yellow)')}
-      />
     </div>
   )
 }

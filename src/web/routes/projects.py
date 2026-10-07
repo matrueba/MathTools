@@ -11,7 +11,15 @@ from constants.web import AGENT_PROVIDERS
 
 from ..data import DataStore, InvalidProjectError
 from ..db import DuplicateProjectError
+from ..harness import SCOPES, HarnessError, install_harness
 from ..serializers import serialize_harness
+
+
+class HarnessInstall(BaseModel):
+    """Body of POST /projects/{id}/harness/{provider}. Defaults: local, every component."""
+
+    scope: str = "local"
+    components: list[str] | None = None
 
 
 class ProjectCreate(BaseModel):
@@ -25,8 +33,8 @@ class ProjectsRouter:
     """
     /projects — git repositories with agent activity.
 
-    Also owns /projects/{id}/harness: what the installer has deployed into a
-    project, per provider, and a (simulated) install/update action.
+    Also owns /projects/{id}/harness: what is deployed into a project, per
+    provider, read from disk, and the install/update action that deploys it.
     """
 
     def __init__(self, data_store: DataStore):
@@ -86,31 +94,29 @@ class ProjectsRouter:
         if project is None:
             raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
 
-        installed = self.data_store.load_harness(project["path"])
+        found = self.data_store.load_harness(project["path"])
 
-        return {
-            "projectId": project_id,
-            "projectPath": project["path"],
-            "providers": [
-                serialize_harness(
-                    provider,
-                    installed.get(provider["id"]),
-                    ENVIRONMENTS.get(provider["env"]) if provider.get("env") else None,
-                )
-                for provider in AGENT_PROVIDERS
-            ],
-        }
+        providers = []
+        for provider in AGENT_PROVIDERS:
+            state = found.get(provider["id"]) or {}
+            providers.append(serialize_harness(
+                provider,
+                state.get("detected"),
+                ENVIRONMENTS.get(provider["env"]) if provider.get("env") else None,
+                state.get("existing"),
+                state.get("roots"),
+            ))
+        return {"projectId": project_id, "projectPath": project["path"], "providers": providers}
 
     def install_harness(
-        self, project_id: str, provider_id: str, payload: dict | None = None
+        self, project_id: str, provider_id: str, payload: HarnessInstall | None = None
     ) -> dict:
         """
         Install or update a provider's harness in this project.
 
-        NOT WIRED UP: this reports what the installer *would* do and changes
-        nothing on disk. Running it for real means calling `download_repo_zips()` and
-        `extract_environment()` from `web/installer.py` with the selected
-        environment, scope and components.
+        Downloads the framework repositories from GitHub and writes the chosen
+        components (see harness.py). A plain `def`, so FastAPI runs it in its
+        threadpool and the download does not block the event loop.
         """
         project = self.data_store.find_project(project_id)
         if project is None:
@@ -127,24 +133,30 @@ class ProjectsRouter:
                 detail=f"{provider['label']} has no installable environment",
             )
 
-        payload = payload or {}
-        scope = payload.get("scope", "local")
-        components = payload.get("components") or [
-            dest_subpath for _, _, dest_subpath, _ in env["sources"]
-        ]
+        payload = payload or HarnessInstall()
+        if payload.scope not in SCOPES:
+            raise HTTPException(status_code=400, detail=f"Unknown scope {payload.scope!r}")
+        supported = [dest for _, _, dest, _ in env["sources"]]
+        components = payload.components or supported
+        unknown = [c for c in components if c not in supported]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{provider['label']} has no component {', '.join(unknown)}",
+            )
 
-        target = (
-            env["global_dir"] if scope == "global"
-            else f"{project['path']}/{env['target_dir']}"
-        )
+        try:
+            result = install_harness(provider["env"], payload.scope, components, project["path"])
+        except HarnessError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
         return {
-            "status": "simulated",
-            "applied": False,
-            "detail": "Mock backend — nothing was written to disk.",
+            "status": "installed",
             "projectId": project_id,
             "provider": provider_id,
-            "scope": scope,
-            "target": target,
+            "scope": payload.scope,
+            "target": result["root"],
             "components": components,
+            "written": len(result["written"]),
+            "removed": result["removed"],
         }

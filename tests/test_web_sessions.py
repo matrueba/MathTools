@@ -94,3 +94,42 @@ def test_unreported_metrics_stay_none_rather_than_zero(client):
     # ...but the aggregate still counts them as zero.
     assert body["stats"]["tokens"]["cacheRead"] == 0
     assert body["stats"]["tokens"]["total"] > 0
+
+
+# ── Interactions (agent → subagent graph; mock-backed for now) ──────────────
+
+def test_interactions_return_a_graph_flagged_as_mock(client):
+    target = _first(client)
+    url = f"/api/projects/mathtools/agents/claude/sessions/{target['id']}/interactions"
+    body = client.get(url).json()
+
+    assert body["sessionId"] == target["id"]
+    assert body["mock"] is True
+    assert body["nodes"] and body["edges"]
+
+
+def test_interaction_graph_is_a_tree_rooted_at_the_main_agent(client):
+    target = _first(client)
+    url = f"/api/projects/mathtools/agents/claude/sessions/{target['id']}/interactions"
+    body = client.get(url).json()
+
+    ids = {n["id"] for n in body["nodes"]}
+    assert len(ids) == len(body["nodes"])
+    for edge in body["edges"]:
+        assert edge["from"] in ids and edge["to"] in ids
+    # Every node but one has exactly one parent: a tree, rooted at the agent.
+    targets = [e["to"] for e in body["edges"]]
+    assert len(targets) == len(set(targets))
+    (root,) = ids - set(targets)
+    assert next(n for n in body["nodes"] if n["id"] == root)["kind"] == "agent"
+    # Launch order is 1..n among each parent's children.
+    by_parent = {}
+    for edge in body["edges"]:
+        by_parent.setdefault(edge["from"], []).append(edge["order"])
+    for orders in by_parent.values():
+        assert sorted(orders) == list(range(1, len(orders) + 1))
+
+
+def test_interactions_of_an_unknown_session_are_404(client):
+    url = "/api/projects/mathtools/agents/claude/sessions/nope/interactions"
+    assert client.get(url).status_code == 404

@@ -429,75 +429,109 @@ def get_mock_chat(session_id: str) -> list[dict]:
     ]
 
 
-# ── Harness ─────────────────────────────────────────────────────────────────
-# What each provider's framework folder contains inside a project — the output
-# of the installer, read back. Keyed by project path, then by provider id.
-# Providers absent from a project's entry are simply not installed there.
+def get_mock_interactions(session_id: str) -> dict:
+    """
+    Agent ↔ subagent interaction graph for a session (the Interactions tab).
 
-_HARNESS_BY_PROJECT = {
-    "/root/mathtools": {
-        "claude": {
-            "scope": "local",
-            "installedAt": _ago(86_400 * 3),
-            "updateAvailable": True,
-            "components": {
-                "agents": [
-                    {"name": "reviewer", "description": "Reviews diffs for correctness"},
-                    {"name": "planner", "description": "Breaks work into ordered steps"},
-                ],
-                "commands": [
-                    {"name": "commit", "description": "Conventional commit with a summary"},
-                    {"name": "review", "description": "Review the current branch"},
-                    {"name": "changelog", "description": "Draft release notes"},
-                ],
-                "skills": [
-                    {"name": "memory-management", "description": "Obsidian vault access"},
-                    {"name": "spec-driven-dev", "description": "Spec-first workflow"},
-                ],
-            },
+    Already in API shape. Nodes are agents; an edge means `from` launched `to`
+    (a Task tool call), numbered by launch order. Subagents can launch their
+    own, so the graph is a tree rooted at the session's main agent. Every
+    session gets the same scripted tree until the real reader — the session's
+    `subagents/agent-*.jsonl` and the Task calls in its transcript — replaces
+    `DataStore.load_interactions`.
+    """
+    nodes = [
+        {
+            "id": "main",
+            "label": "Main agent",
+            "kind": "agent",
+            "agentType": "main",
+            "model": "claude-opus-5-5",
+            "status": "work",
+            "tokens": 184_300,
+            "toolCalls": 42,
+            "durationMs": None,
+            "prompt": None,
+            "result": None,
         },
-        "opencode": {
-            "scope": "global",
-            "installedAt": _ago(86_400 * 12),
-            "updateAvailable": False,
-            "components": {
-                "agents": [{"name": "reviewer", "description": "Reviews diffs for correctness"}],
-                "commands": [{"name": "commit", "description": "Conventional commit with a summary"}],
-                "skills": [{"name": "memory-management", "description": "Obsidian vault access"}],
-            },
+        {
+            "id": "explore",
+            "label": "Explore frontend conventions",
+            "kind": "subagent",
+            "agentType": "Explore",
+            "model": "claude-haiku-4-5-20251001",
+            "status": "done",
+            "tokens": 12_400,
+            "toolCalls": 9,
+            "durationMs": 21_800,
+            "prompt": "Find how views fetch data, how they are routed and which "
+                      "components the session pages reuse.",
+            "result": "Views use useApi/useLiveApi; routes live in App.jsx; "
+                      "SessionWindow hosts the chat and interactions tabs.",
         },
-    },
-    "/root/matrueba-skills-framework": {
-        "claude": {
-            "scope": "local",
-            "installedAt": _ago(86_400 * 20),
-            "updateAvailable": True,
-            "components": {
-                "agents": [{"name": "planner", "description": "Breaks work into ordered steps"}],
-                "commands": [],
-                "skills": [
-                    {"name": "memory-management", "description": "Obsidian vault access"},
-                    {"name": "changelog-generator", "description": "Release notes from git log"},
-                    {"name": "spec-driven-dev", "description": "Spec-first workflow"},
-                ],
-            },
+        {
+            "id": "plan",
+            "label": "Plan the interactions API",
+            "kind": "subagent",
+            "agentType": "Plan",
+            "model": "claude-opus-5-5",
+            "status": "done",
+            "tokens": 31_900,
+            "toolCalls": 14,
+            "durationMs": 64_200,
+            "prompt": "Design an endpoint that exposes which subagents a session "
+                      "launched and what each one returned.",
+            "result": "GET …/sessions/{id}/interactions returning nodes and "
+                      "edges; one DataStore seam so a mock can come first.",
         },
-    },
-    "/root/matrueba-AI-development-framework": {
-        "gemini": {
-            "scope": "local",
-            "installedAt": _ago(86_400 * 5),
-            "updateAvailable": False,
-            "components": {
-                "agents": [{"name": "reviewer", "description": "Reviews diffs for correctness"}],
-                "commands": [{"name": "review", "description": "Review the current branch"}],
-                "skills": [],
-            },
+        {
+            "id": "review",
+            "label": "Review route naming",
+            "kind": "subagent",
+            "agentType": "general-purpose",
+            "model": "claude-haiku-4-5-20251001",
+            "status": "done",
+            "tokens": 5_100,
+            "toolCalls": 3,
+            "durationMs": 9_400,
+            "prompt": "Check the new route against the nesting rules of the "
+                      "sessions router.",
+            "result": "Fits under /projects/{id}/agents/{agent}/sessions/{sid}.",
         },
-    },
-}
-
-
-def get_mock_harness(project_path: str) -> dict:
-    """Installed harness per provider id for one project. Empty if none."""
-    return _HARNESS_BY_PROJECT.get(project_path, {})
+        {
+            "id": "build",
+            "label": "Build the graph view",
+            "kind": "subagent",
+            "agentType": "general-purpose",
+            "model": "claude-opus-5-5",
+            "status": "work",
+            "tokens": 22_700,
+            "toolCalls": 11,
+            "durationMs": None,
+            "prompt": "Render the interaction tree left to right, with arrows "
+                      "from each agent to the subagents it launched.",
+            "result": None,
+        },
+        {
+            "id": "lint",
+            "label": "Check bundle size",
+            "kind": "subagent",
+            "agentType": "general-purpose",
+            "model": "claude-haiku-4-5-20251001",
+            "status": "error",
+            "tokens": 1_800,
+            "toolCalls": 2,
+            "durationMs": 3_100,
+            "prompt": "Measure what the graph view adds to the production bundle.",
+            "result": "npm run build failed: vite not found in PATH.",
+        },
+    ]
+    edges = [
+        {"from": "main", "to": "explore", "order": 1, "at": _ago(1_200)},
+        {"from": "main", "to": "plan", "order": 2, "at": _ago(1_100)},
+        {"from": "plan", "to": "review", "order": 1, "at": _ago(1_050)},
+        {"from": "main", "to": "build", "order": 3, "at": _ago(600)},
+        {"from": "build", "to": "lint", "order": 1, "at": _ago(300)},
+    ]
+    # `mock` lets the UI say these are sample data, not this session's.
+    return {"sessionId": session_id, "mock": True, "nodes": nodes, "edges": edges}

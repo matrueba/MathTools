@@ -5,8 +5,9 @@ Each prompt is one headless turn: `claude -p --resume <id>` run in the
 project's directory, with `--output-format stream-json` so every step of the
 turn arrives as one JSON line while it happens. Claude Code appends the turn to
 the same transcript the session reader parses, so the sessions list picks it up
-on its next poll with no extra wiring. When the session is still open in a
-terminal, Claude Code itself decides to continue in a copy instead.
+on its next tick with no extra wiring. A session open elsewhere (a terminal,
+the VS Code extension) is never driven from here: the route refuses it, since
+two writers on one session would fork or interleave it.
 
 The CLI's events are verbose and private (thinking signatures, rate-limit
 pings, per-block partials), so `translate_event` reduces them to the handful
@@ -21,16 +22,29 @@ draws for the monitoring contract:
                             "turns", "denied"}
     {"type": "error",       "message"}
 
-Subagent traffic (`parent_tool_use_id` set) is dropped: the Task tool call
-that spawned it already shows in the chat.
+`history_events` replays a session's transcript in the same vocabulary, so the
+chat renders history and live turns with one reducer. It adds:
+
+    {"type": "prompt",      "text", "at"}              what the user typed;
+                                                       starts a turn
+    {"type": "text",        "text", "block": true}     a whole text block, not
+                                                       a delta to append to
+    {"type": "note",        "text"}                    something that happened
+                                                       between prompts
+
+Subagent traffic (`parent_tool_use_id` set, or `isSidechain` in a transcript)
+is dropped: the Task tool call that spawned it already shows in the chat.
 """
 
 import asyncio
 import json
 import os
+import re
 import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
+
+from ..sources.claude import DASHBOARD_PIDS
 
 # Permission modes the UI may pick. `bypassPermissions` is deliberately left
 # out: a browser tab should not be able to switch every safety check off.
@@ -159,6 +173,98 @@ def translate_event(record: dict) -> list[dict]:
     return []
 
 
+# Context Claude Code wraps into a user message on the user's behalf (IDE
+# state, reminders, slash-command plumbing). A text block that is nothing but
+# one of these is not something the user typed.
+_INJECTED_TAGS = (
+    "ide_opened_file", "ide_selection", "ide_diagnostics", "system-reminder",
+    "local-command-stdout", "local-command-stderr", "local-command-caveat",
+    "command-message", "user-prompt-submit-hook",
+)
+_INJECTED = re.compile(
+    r"<(" + "|".join(map(re.escape, _INJECTED_TAGS)) + r")\b[^>]*>.*?</\1>", re.S
+)
+_COMMAND = re.compile(r"<command-name>(.*?)</command-name>", re.S)
+_COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
+_PASTED = re.compile(r"</?pasted_content\b[^>]*>")
+
+
+def _prompt_text(content) -> str:
+    """
+    What the user actually wrote, from a transcript user message.
+
+    Injected context is removed, a slash command is shown as typed
+    ("/name args"), pasted text keeps its content but loses its wrapper, and an
+    image becomes "[image]". Empty when nothing user-written is left.
+    """
+    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content
+    parts = []
+    for block in blocks or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "image":
+            parts.append("[image]")
+            continue
+        if block.get("type") != "text":
+            continue
+        text = block.get("text") or ""
+        command = _COMMAND.search(text)
+        if command:
+            args = _COMMAND_ARGS.search(text)
+            text = f"{command.group(1).strip()} {args.group(1).strip() if args else ''}"
+        else:
+            text = _PASTED.sub("", _INJECTED.sub("", text))
+        if text.strip():
+            parts.append(text.strip())
+    return "\n\n".join(parts)
+
+
+def history_events(records: list[dict]) -> list[dict]:
+    """
+    A session transcript as chat events (see the module docstring).
+
+    Transcript `assistant`/`user` records share their message shape with the
+    stream-json output, so tool calls and results go through the same helpers
+    as a live turn.
+    """
+    events = []
+    for record in records:
+        if record.get("isSidechain") or record.get("isMeta"):
+            continue
+        kind = record.get("type")
+        content = (record.get("message") or {}).get("content")
+
+        if kind == "assistant":
+            for block in content or []:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text" and (block.get("text") or "").strip():
+                    events.append({"type": "text", "text": block["text"], "block": True})
+                elif block.get("type") == "tool_use":
+                    events.append({
+                        "type": "tool",
+                        "id": block.get("id"),
+                        "name": block.get("name", "?"),
+                        "summary": _tool_summary(block.get("name", ""), block.get("input")),
+                    })
+
+        elif kind == "user":
+            if record.get("isCompactSummary"):
+                events.append({"type": "note", "text": "Conversation compacted"})
+                continue
+            if isinstance(content, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+            ):
+                events += translate_event({"type": "user", "message": {"content": content}})
+                continue
+            text = _prompt_text(content)
+            if text.startswith("<task-notification>"):
+                events.append({"type": "note", "text": "A background task finished"})
+            elif text:
+                events.append({"type": "prompt", "text": text, "at": record.get("timestamp")})
+    return events
+
+
 class ClaudeRunner:
     """Runs prompts against Claude Code sessions, one at a time per session."""
 
@@ -224,12 +330,20 @@ class ClaudeRunner:
             except OSError as exc:
                 yield {"type": "error", "message": f"Could not start Claude Code: {exc}"}
                 return
+            # It registers in ~/.claude/sessions like any client; this keeps
+            # the session from reading as "open elsewhere" during our turn.
+            DASHBOARD_PIDS.add(str(process.pid))
 
             # The prompt goes over stdin, not argv, so a prompt starting with
             # "-" is never mistaken for a flag.
-            process.stdin.write(prompt.encode("utf-8"))
-            await process.stdin.drain()
-            process.stdin.close()
+            # A process that dies at startup closes its stdin first; its exit
+            # code and stderr, read below, are what explain the failure.
+            try:
+                process.stdin.write(prompt.encode("utf-8"))
+                await process.stdin.drain()
+                process.stdin.close()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
             # Drained concurrently: a chatty stderr would otherwise fill its
             # pipe and stall the process while stdout is being read.
@@ -258,7 +372,9 @@ class ClaudeRunner:
                 message = stderr or f"Claude Code exited with code {code}"
                 yield {"type": "error", "message": _truncate(message, RESULT_PREVIEW_CHARS)}
         finally:
-            if process is not None and process.returncode is None:
-                process.kill()
-                await process.wait()
+            if process is not None:
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
+                DASHBOARD_PIDS.discard(str(process.pid))
             self._running.discard(session_id)

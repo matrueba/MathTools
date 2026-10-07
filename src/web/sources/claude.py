@@ -23,19 +23,28 @@ and an unreadable file yields no session, never an exception.
 """
 
 import json
-import os
+import re
 import time
 from pathlib import Path
 
-from constants.source_files import CLAUDE_BASE_DIR, MODEL_CONTEXT_WINDOW
+from constants.source_files import CLAUDE_BASE_DIR
 
-DEFAULT_CONTEXT_WINDOW = 200_000
+from .models import context_window
+
+DEFAULT_CONTEXT_WINDOW = 1_000_000
 
 # A transcript written to this recently means the agent is mid-turn.
 WORK_THRESHOLD_SECONDS = 30
 
 # Claude Code's live-process registry: <pid>.json → {"sessionId", "cwd", …}.
 LIVE_SESSIONS_DIR = "~/.claude/sessions"
+
+# PIDs of the `claude` processes the dashboard itself is running (see
+# runners/claude.py, which adds and removes them). Not "someone else".
+DASHBOARD_PIDS: set[str] = set()
+
+# Session ids are UUIDs; anything else is refused before touching the disk.
+_SESSION_ID = re.compile(r"^[A-Za-z0-9-]+$")
 
 # Parsed transcripts keyed by path, reused while (mtime, size) is unchanged.
 # The dashboard polls every 3s and transcripts run to megabytes, so only the
@@ -172,18 +181,47 @@ def _subagents(session_dir: Path, now: float) -> list[dict]:
     return result
 
 
-def _live_pids() -> dict[str, list[str]]:
+def _process_alive(pid: str, proc_start: str | None) -> bool:
     """
-    sessionId -> PIDs of Claude Code processes still running it.
+    True when `pid` is running and is still the process the registry meant.
+
+    A registry file can outlive its process (a crash skips the cleanup), and
+    the kernel reuses PIDs, so existence alone is not enough: Claude Code
+    records the process start time (`procStart`, field 22 of /proc/<pid>/stat)
+    and a different value means another program now owns that PID. Entries
+    without `procStart` fall back to the existence check.
+    """
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as f:
+            stat = f.read()
+    except OSError:
+        return False
+    if not proc_start:
+        return True
+    # The command name (field 2) may hold spaces or parentheses, so split
+    # after its closing paren; what follows starts at field 3.
+    fields = stat.rpartition(")")[2].split()
+    return len(fields) > 19 and fields[19] == str(proc_start)
+
+
+def _live_processes() -> dict[str, list[dict]]:
+    """
+    sessionId -> Claude Code processes running it outside the dashboard.
+
+    Each item is {"pid", "entrypoint"}; the entrypoint says where the session
+    is open ("cli" for a terminal, "claude-vscode" for the VS Code extension,
+    …). Processes the dashboard spawned itself (DASHBOARD_PIDS) are left out:
+    they register like any other, and would otherwise make every session look
+    taken by someone else while the dashboard drives it.
 
     Linux-only (/proc); anywhere else, or on any read error, simply empty.
     """
-    pids: dict[str, list[str]] = {}
+    live: dict[str, list[dict]] = {}
     folder = Path(LIVE_SESSIONS_DIR).expanduser()
     try:
         entries = list(folder.glob("*.json"))
     except OSError:
-        return pids
+        return live
 
     for entry in entries:
         try:
@@ -191,9 +229,12 @@ def _live_pids() -> dict[str, list[str]]:
             pid, session_id = str(data["pid"]), data["sessionId"]
         except (OSError, ValueError, KeyError, TypeError):
             continue
-        if os.path.exists(f"/proc/{pid}"):
-            pids.setdefault(session_id, []).append(pid)
-    return pids
+        if pid in DASHBOARD_PIDS or not _process_alive(pid, data.get("procStart")):
+            continue
+        live.setdefault(session_id, []).append(
+            {"pid": pid, "entrypoint": data.get("entrypoint") or "unknown"}
+        )
+    return live
 
 
 def parse_claude_sessions(project_path: str = None, base_dir: str | Path = CLAUDE_BASE_DIR) -> tuple[list[dict], dict]:
@@ -214,7 +255,7 @@ def parse_claude_sessions(project_path: str = None, base_dir: str | Path = CLAUD
         return sessions, totals
 
     now = time.time()
-    live = _live_pids()
+    live = _live_processes()
 
     for transcript in transcripts:
         info = _parse_transcript(transcript)
@@ -250,7 +291,7 @@ def parse_claude_sessions(project_path: str = None, base_dir: str | Path = CLAUD
             "Status": "Work" if working else "Wait",
             "TurnCount": info["turns"],
             "LastContext": info["lastContext"],
-            "ContextWindow": MODEL_CONTEXT_WINDOW.get(model, DEFAULT_CONTEXT_WINDOW),
+            "ContextWindow": context_window("claude", model, DEFAULT_CONTEXT_WINDOW),
             "TotalTokens": sum(usage.values()),
             "InputTokens": usage["input"],
             "OutputTokens": usage["output"],
@@ -262,8 +303,44 @@ def parse_claude_sessions(project_path: str = None, base_dir: str | Path = CLAUD
             "Subagents": [
                 {k: s[k] for k in ("label", "type", "status", "tokens")} for s in subagents
             ],
-            "PIDs": live.get(session_id, []),
+            # Processes running this session outside the dashboard; non-empty
+            # means it is open elsewhere and must not be driven from here.
+            "PIDs": [p["pid"] for p in live.get(session_id, [])],
+            "LiveIn": sorted({p["entrypoint"] for p in live.get(session_id, [])}),
             "ProjectPath": info["cwd"],
         })
 
     return sessions, totals
+
+
+def read_transcript(session_id: str, base_dir: str | Path = CLAUDE_BASE_DIR) -> list[dict]:
+    """
+    Every JSON record of one session's main transcript, in file order.
+
+    The transcript lives in a folder named after the session's cwd with a lossy
+    encoding, so it is found by id across all of them. Malformed lines are
+    skipped; a missing or unreadable file reads as no records.
+    """
+    if not _SESSION_ID.match(session_id or ""):
+        return []
+    root = Path(base_dir).expanduser()
+    try:
+        path = next(root.glob(f"*/{session_id}.jsonl"), None)
+    except OSError:
+        return []
+    if path is None:
+        return []
+
+    records = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(record, dict):
+                    records.append(record)
+    except OSError:
+        return []
+    return records

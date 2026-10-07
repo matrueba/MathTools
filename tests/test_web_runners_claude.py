@@ -1,4 +1,4 @@
-"""Driving a Claude Code session: event translation and the prompt route."""
+"""Driving a Claude Code session: event translation, history and the routes."""
 
 import asyncio
 import json
@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 
 import web.data
 import web.routes.sessions
-from web.runners.claude import ClaudeRunner, SessionBusyError, translate_event
+from web.runners.claude import ClaudeRunner, SessionBusyError, history_events, translate_event
+from web.sources.claude import DASHBOARD_PIDS
 from web.server import create_app
 
 SESSION_ID = "abc-123"
@@ -94,6 +95,72 @@ def test_unknown_and_malformed_records_are_ignored():
     assert translate_event("nope") == []
 
 
+# ── history_events ──────────────────────────────────────────────────────────
+
+def _user(content, **extra):
+    return {"type": "user", "message": {"role": "user", "content": content}, **extra}
+
+
+def _assistant(*blocks, **extra):
+    return {"type": "assistant", "message": {"content": list(blocks)}, **extra}
+
+
+def test_history_replays_a_turn_in_the_chat_vocabulary():
+    events = history_events([
+        _user("fix the bug", timestamp="2026-10-05T00:00:00Z"),
+        _assistant({"type": "thinking", "thinking": "hmm"}),
+        _assistant({"type": "text", "text": "Looking."}),
+        _assistant({"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}}),
+        _user([{"type": "tool_result", "tool_use_id": "t1", "content": "a.py"}]),
+        _assistant({"type": "text", "text": "Done."}),
+        {"type": "ai-title", "aiTitle": "x"},
+    ])
+    assert events == [
+        {"type": "prompt", "text": "fix the bug", "at": "2026-10-05T00:00:00Z"},
+        {"type": "text", "text": "Looking.", "block": True},
+        {"type": "tool", "id": "t1", "name": "Bash", "summary": "ls"},
+        {"type": "tool_result", "id": "t1", "isError": False, "text": "a.py"},
+        {"type": "text", "text": "Done.", "block": True},
+    ]
+
+
+def test_history_keeps_only_what_the_user_typed():
+    (event,) = history_events([_user([
+        {"type": "text", "text": "<ide_opened_file>The user opened x.py</ide_opened_file>"},
+        {"type": "text", "text": "<ide_selection>lines 1-2</ide_selection>"},
+        {"type": "image", "source": {"type": "base64", "data": "..."}},
+        {"type": "text", "text": "why <b>this</b>?\n<system-reminder>be nice</system-reminder>"},
+    ])])
+    assert event["text"] == "[image]\n\nwhy <b>this</b>?"
+
+
+def test_history_shows_slash_commands_and_unwraps_pastes():
+    command = _user("<command-message>review</command-message>\n"
+                    "<command-name>/review</command-name>\n<command-args>high</command-args>")
+    paste = _user('look:\n<pasted_content id="1">Traceback</pasted_content>')
+    assert [e["text"] for e in history_events([command, paste])] == [
+        "/review high", "look:\nTraceback",
+    ]
+
+
+def test_history_skips_meta_sidechains_and_empty_context_only_messages():
+    events = history_events([
+        _user("caveat", isMeta=True),
+        _user("subagent prompt", isSidechain=True),
+        _assistant({"type": "text", "text": "subagent reply"}, isSidechain=True),
+        _user([{"type": "text", "text": "<ide_opened_file>x</ide_opened_file>"}]),
+    ])
+    assert events == []
+
+
+def test_history_turns_system_messages_into_notes():
+    events = history_events([
+        _user("summary of earlier work", isCompactSummary=True),
+        _user("<task-notification><task-id>1</task-id></task-notification>"),
+    ])
+    assert [e["type"] for e in events] == ["note", "note"]
+
+
 # ── ClaudeRunner against a fake binary ──────────────────────────────────────
 
 @pytest.fixture
@@ -126,6 +193,19 @@ def test_runner_streams_translated_events(fake_claude, tmp_path):
     assert events[1]["text"] == "echo: -hello"
 
 
+def test_runner_marks_its_process_as_the_dashboards_while_it_runs(fake_claude, tmp_path):
+    async def scenario():
+        stream = ClaudeRunner(fake_claude).stream(SESSION_ID, str(tmp_path), "hi")
+        await stream.__anext__()
+        during = set(DASHBOARD_PIDS)
+        rest = [e async for e in stream]
+        return during, rest
+
+    during, _ = asyncio.run(scenario())
+    assert len(during) == 1
+    assert DASHBOARD_PIDS == set()
+
+
 def test_runner_reports_a_crash_as_an_error_event(tmp_path):
     script = tmp_path / "claude"
     script.write_text("#!/bin/sh\necho 'No conversation found' >&2\nexit 1\n")
@@ -133,6 +213,16 @@ def test_runner_reports_a_crash_as_an_error_event(tmp_path):
 
     events = asyncio.run(_collect(ClaudeRunner(str(script)), SESSION_ID, str(tmp_path), "hi"))
     assert events == [{"type": "error", "message": "No conversation found"}]
+
+
+def test_runner_survives_a_process_that_never_reads_its_prompt(tmp_path):
+    script = tmp_path / "claude"
+    script.write_text("#!/bin/sh\nexec 0<&-\necho 'bad flag' >&2\nexit 2\n")
+    script.chmod(0o755)
+
+    # Big enough to overflow the pipe buffer, so the write itself fails.
+    events = asyncio.run(_collect(ClaudeRunner(str(script)), SESSION_ID, str(tmp_path), "x" * 1_000_000))
+    assert events == [{"type": "error", "message": "bad flag"}]
 
 
 def test_runner_refuses_a_second_turn_on_a_busy_session(tmp_path):
@@ -182,6 +272,7 @@ def client(tmp_path, monkeypatch, runner):
     monkeypatch.setattr(web.data.DataStore, "load_agent_sessions", load)
     client = TestClient(create_app(db_path=tmp_path / "mathtools.db"))
     assert client.post("/api/projects", json={"path": path}).status_code == 201
+    client.session = session  # tests flip PIDs on it to make it live
     return client
 
 
@@ -224,3 +315,44 @@ def test_prompt_on_a_busy_session_is_409(client, runner):
 def test_prompt_on_an_unknown_session_is_404(client, runner):
     url = "/api/projects/mathtools/agents/claude/sessions/nope/prompt"
     assert client.post(url, json={"prompt": "hi"}).status_code == 404
+
+
+def test_prompt_on_a_session_open_elsewhere_is_409(client, runner):
+    client.session["PIDs"] = ["4242"]
+    res = client.post(URL, json={"prompt": "hi"})
+    assert res.status_code == 409
+    assert "another Claude Code client" in res.json()["detail"]
+    assert runner.calls == []
+
+
+# ── GET …/sessions/{id}/history ─────────────────────────────────────────────
+
+HISTORY = f"/api/projects/mathtools/agents/claude/sessions/{SESSION_ID}/history"
+
+
+def test_history_route_returns_events_and_liveness(client, monkeypatch):
+    read = []
+    monkeypatch.setattr(web.data, "read_transcript", lambda sid: read.append(sid) or [_user("hello")])
+
+    body = client.get(HISTORY).json()
+    assert body == {
+        "sessionId": SESSION_ID,
+        "live": False,
+        "events": [{"type": "prompt", "text": "hello", "at": None}],
+    }
+    assert read == [SESSION_ID]
+
+    client.session["PIDs"] = ["4242"]
+    assert client.get(HISTORY).json()["live"] is True
+
+
+def test_history_of_an_unknown_session_is_404(client):
+    url = "/api/projects/mathtools/agents/claude/sessions/nope/history"
+    assert client.get(url).status_code == 404
+
+
+def test_project_payload_flags_live_sessions(client):
+    client.session.update({"PIDs": ["4242"], "LiveIn": ["claude-vscode"]})
+    (agent,) = client.get("/api/projects/mathtools").json()["agents"]
+    assert agent["sessions"][0]["live"] is True
+    assert agent["sessions"][0]["liveIn"] == ["claude-vscode"]

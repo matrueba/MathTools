@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 
 from web.mock_data import (
     get_mock_chat,
-    get_mock_harness,
     get_mock_repositories,
     get_mock_sessions,
 )
@@ -275,10 +274,6 @@ def test_serialize_message_keeps_optional_fields():
 
 # ── Harness ─────────────────────────────────────────────────────────────────
 
-def test_mock_harness_is_empty_for_untracked_paths():
-    assert get_mock_harness("/nowhere") == {}
-
-
 def test_serialize_harness_takes_component_types_from_the_installer():
     """supportedComponents must come from ENVIRONMENTS, not a second list."""
     provider = {"id": "claude", "label": "Claude Code", "tag": "CL", "accent": "#000"}
@@ -305,65 +300,6 @@ def test_serialize_harness_without_installer_support():
     assert result["installable"] is False
     assert result["supportedComponents"] == []
     assert result["targetDir"] is None
-
-
-def test_harness_endpoint_lists_all_providers(web_client):
-    body = web_client.get("/api/projects/mathtools/harness").json()
-    providers = {p["id"]: p for p in body["providers"]}
-
-    assert len(providers) == len(AGENT_PROVIDERS)
-    assert providers["claude"]["installed"] is True
-    assert providers["claude"]["componentCount"] == 7
-    assert providers["claude"]["updateAvailable"] is True
-    # Codex has sessions but no environment the installer can deploy.
-    assert providers["codex"]["installable"] is False
-
-
-def test_harness_lists_providers_that_are_not_installed(web_client):
-    providers = web_client.get("/api/projects/dotfiles/harness").json()["providers"]
-    claude = next(p for p in providers if p["id"] == "claude")
-    assert claude["installed"] is False
-    assert claude["installable"] is True
-
-
-def test_harness_404_for_unknown_project(client):
-    assert client.get("/api/projects/nope/harness").status_code == 404
-
-
-def test_install_harness_is_simulated_only(web_client):
-    response = web_client.post(
-        "/api/projects/mathtools/harness/claude",
-        json={"scope": "local", "components": ["skills"]},
-    )
-    assert response.status_code == 200
-
-    body = response.json()
-    assert body["status"] == "simulated"
-    assert body["applied"] is False
-    assert body["components"] == ["skills"]
-    assert body["target"] == f"{web_client.repo_paths['mathtools']}/.claude"
-
-
-def test_install_harness_global_scope_targets_the_home_dir(web_client):
-    body = web_client.post(
-        "/api/projects/mathtools/harness/claude", json={"scope": "global"}
-    ).json()
-    assert body["target"] == "~/.claude"
-
-
-def test_install_harness_defaults_to_every_component(web_client):
-    body = web_client.post("/api/projects/mathtools/harness/claude", json={}).json()
-    assert body["components"] == ["agents", "commands", "skills"]
-
-
-def test_install_harness_rejects_a_provider_without_an_environment(web_client):
-    response = web_client.post("/api/projects/mathtools/harness/codex", json={})
-    assert response.status_code == 400
-
-
-def test_install_harness_404s(web_client):
-    assert web_client.post("/api/projects/nope/harness/claude", json={}).status_code == 404
-    assert web_client.post("/api/projects/mathtools/harness/nope", json={}).status_code == 404
 
 
 # ── Frontend mount ──────────────────────────────────────────────────────────

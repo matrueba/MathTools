@@ -15,7 +15,9 @@ simulation).
 
 import io
 import os
+import re
 import shutil
+import time
 import zipfile
 
 import requests
@@ -23,17 +25,65 @@ import requests
 from constants.environments import ENVIRONMENTS
 from constants.repositories import REPOSITORIES
 
+from .git import run_git
+
 DOWNLOAD_TIMEOUT_SECONDS = 60
 
+# How long a looked-up remote revision is trusted. Checking for updates costs
+# a network round trip per repository, and the Harness tab can be reopened
+# often; upstream does not move that fast.
+REVISION_TTL_SECONDS = 600
 
-def download_repo_zips() -> dict[str, bytes]:
-    """Every repository archive in REPOSITORIES, as raw bytes keyed by name."""
+# A GitHub branch archive URL: what REPOSITORIES stores.
+_ARCHIVE_URL = re.compile(
+    r"^https://github\.com/(?P<repo>[^/]+/[^/]+)/archive/refs/heads/(?P<branch>.+)\.zip$"
+)
+
+# repo name -> (looked up at, revision or None)
+_revision_cache: dict[str, tuple[float, str | None]] = {}
+
+
+def download_repo_zips(names: list[str] | None = None) -> dict[str, bytes]:
+    """
+    Repository archives as raw bytes keyed by name.
+
+    `names` limits the download to those REPOSITORIES entries; None means all.
+    Raises requests.RequestException when GitHub cannot be reached.
+    """
     zips = {}
     for repo_name, repo_info in REPOSITORIES.items():
+        if names is not None and repo_name not in names:
+            continue
         response = requests.get(repo_info["url"], timeout=DOWNLOAD_TIMEOUT_SECONDS)
         response.raise_for_status()
         zips[repo_name] = response.content
     return zips
+
+
+def remote_revision(repo_name: str) -> str | None:
+    """
+    Commit the repository's archive branch currently points at, or None.
+
+    Asked with `git ls-remote`, which needs no clone, and cached for
+    REVISION_TTL_SECONDS. None means unknown (offline, git missing, a URL that
+    is not a GitHub branch archive) — never "no update".
+    """
+    cached = _revision_cache.get(repo_name)
+    now = time.monotonic()
+    if cached and now - cached[0] < REVISION_TTL_SECONDS:
+        return cached[1]
+
+    revision = None
+    match = _ARCHIVE_URL.match(REPOSITORIES.get(repo_name, {}).get("url", ""))
+    if match:
+        out = run_git(
+            ".", "ls-remote", f"https://github.com/{match['repo']}.git",
+            f"refs/heads/{match['branch']}",
+        )
+        if out:
+            revision = out.split()[0]
+    _revision_cache[repo_name] = (now, revision)
+    return revision
 
 
 def _zip_prefix(repo_name: str, src_path: str) -> str:
@@ -99,6 +149,10 @@ def extract_environment(
     for repo_name, src_path, dest_subpath, global_path in env["sources"]:
         prefix = _zip_prefix(repo_name, src_path)
         selection = selections.get(src_path, "all")
+        # Nothing selected from this source: its repository may not even
+        # have been downloaded.
+        if selection != "all" and not selection:
+            continue
 
         with zipfile.ZipFile(io.BytesIO(zips[repo_name])) as zf:
             for member in zf.namelist():

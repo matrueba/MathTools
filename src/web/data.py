@@ -3,8 +3,8 @@ Central data access for the web backend.
 
 Every `load_*` method is a seam: swap its body for a real implementation and
 every router built on `DataStore` goes live, with no other code to touch.
-Sessions are already live for Claude Code (`get_claude_sessions`); chat and
-harness are still mock-backed.
+Sessions are live for Claude Code (`get_claude_sessions`) and the harness is
+read from disk (`harness.py`); only the Interactions chat is still mock-backed.
 """
 
 import re
@@ -15,9 +15,11 @@ from constants.web import AGENT_PROVIDERS, GIT_REFRESH_SECONDS
 
 from .db import ProjectStore
 from .git import is_git_repo, run_git
-from .mock_data import get_mock_chat, get_mock_harness
+from .harness import detect_harness, existing_targets, install_roots
+from .mock_data import get_mock_chat, get_mock_interactions
 from .serializers import serialize_project, serialize_session, summarize_sessions
-from .sources.claude import parse_claude_sessions
+from .runners.claude import history_events
+from .sources.claude import parse_claude_sessions, read_transcript
 
 
 class InvalidProjectError(ValueError):
@@ -104,14 +106,47 @@ class DataStore:
         """
         return get_mock_chat(session_id)
 
+    def load_interactions(self, agent_id: str, session_id: str) -> dict:
+        """
+        Which agents a session ran and who launched whom, as a graph
+        ({sessionId, nodes, edges}, already in API shape).
+
+        MOCK for now. The real version reads the session's
+        `subagents/agent-*.jsonl` (+ `.meta.json`) and matches each to the Task
+        tool call that launched it in the parent transcript.
+        """
+        return get_mock_interactions(session_id)
+
+    def load_history(self, agent_id: str, session_id: str) -> list[dict] | None:
+        """
+        A session's past turns as chat events (see runners/claude.py), or None
+        for an agent whose transcripts cannot be read yet.
+        """
+        if agent_id == "claude":
+            return history_events(read_transcript(session_id))
+        return None
+
     def load_harness(self, project_path: str) -> dict:
         """
-        Harness installed in a project, per provider id.
+        Harness found on disk for a project, per provider id.
 
-        Swap this body for a walk of `<project>/<target_dir>/<dest_subpath>` using
-        the installer's own ENVIRONMENTS entries.
+        Each value is `detect_harness`'s view of the provider's environment
+        (see harness.py) plus, per scope, `existing` (the destinations an
+        install would write into that already exist) and `roots` (the
+        absolute folder it installs into: <repo>/.claude, $HOME/.claude). Providers with no
+        environment are absent.
         """
-        return get_mock_harness(project_path)
+        result = {}
+        for provider in AGENT_PROVIDERS:
+            env_key = provider.get("env")
+            if not env_key:
+                continue
+            result[provider["id"]] = {
+                "detected": detect_harness(env_key, project_path),
+                "existing": existing_targets(env_key, project_path),
+                "roots": install_roots(env_key, project_path),
+            }
+        return result
 
     def find_agent(self, agent_id: str) -> dict | None:
         """One AGENT_PROVIDERS entry by id, or None."""
